@@ -1164,7 +1164,37 @@ input::placeholder{color:var(--dim)}
   .tb-stats .tbs:nth-child(n+3){display:none}
 }
 @media(max-width:420px){
-  .shell{grid-template-columns:0 1fr}.sidebar{display:none}
+  /* MOBILE GRID FIX:
+     The previous layout changed the shell to `0 1fr` while hiding the
+     sidebar. CSS Grid then auto-placed <main class="center"> into the
+     zero-width first column and the dashboard became almost invisible.
+     Keep the mobile layout as one real column instead. */
+  .shell{
+    grid-template-columns:1fr;
+    grid-template-rows:54px minmax(0,1fr) auto 30px;
+    min-height:100vh;
+  }
+  .topbar{grid-column:1}
+  .sidebar{display:none}
+  .center{
+    grid-column:1;
+    grid-row:2;
+    min-width:0;
+    width:100%;
+  }
+  .rpanel{
+    grid-column:1;
+    grid-row:3;
+    width:100%;
+    max-height:none;
+    border-left:none;
+    border-top:1px solid var(--bdr);
+  }
+  .botbar{
+    grid-column:1;
+    grid-row:4;
+    min-width:0;
+  }
   .cards-row{grid-template-columns:1fr}
 }
 
