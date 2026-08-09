@@ -1,11 +1,11 @@
 name: ESP32 Weather Station Build
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - "**"
   pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,112 +16,117 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ------------------------------------------------------------
+
+      # ----------------------------------------------------------
       # 1. Checkout repository
-      # ------------------------------------------------------------
+      # ----------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------
+      # ----------------------------------------------------------
       # 2. Install Arduino CLI
-      # ------------------------------------------------------------
+      # ----------------------------------------------------------
       - name: Install Arduino CLI
-  run: |
-    mkdir -p "$HOME/bin"
+        run: |
+          set -e
 
-    curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
-      | BINDIR="$HOME/bin" sh
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
+            | sh -s -- -b "$RUNNER_TEMP/bin"
 
-    echo "$HOME/bin" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
-    "$HOME/bin/arduino-cli" version
+          "$RUNNER_TEMP/bin/arduino-cli" version
 
-      # ------------------------------------------------------------
+      # ----------------------------------------------------------
       # 3. Configure Arduino CLI
-      # ------------------------------------------------------------
+      # ----------------------------------------------------------
       - name: Configure Arduino CLI
         run: |
+          set -e
+
           arduino-cli config init
 
-          arduino-cli config set \
-            directories.data "$HOME/.arduino15"
+          arduino-cli config dump
 
-          arduino-cli config set \
-            directories.downloads "$HOME/.arduino15/staging"
-
-      # ------------------------------------------------------------
-      # 4. Add ESP32 Boards Manager URL
-      # ------------------------------------------------------------
-      - name: Add ESP32 package index
+      # ----------------------------------------------------------
+      # 4. Add ESP32 Boards Manager
+      # ----------------------------------------------------------
+      - name: Configure ESP32 board package
         run: |
+          set -e
+
           arduino-cli config add board_manager.additional_urls \
             https://espressif.github.io/arduino-esp32/package_esp32_index.json
 
           arduino-cli core update-index
 
-      # ------------------------------------------------------------
+      # ----------------------------------------------------------
       # 5. Install ESP32 Arduino Core 3.5.5
-      # ------------------------------------------------------------
+      # ----------------------------------------------------------
       - name: Install ESP32 Arduino Core
         run: |
+          set -e
+
           arduino-cli core install esp32:esp32@3.5.5
 
+          echo "Installed cores:"
           arduino-cli core list
 
-      # ------------------------------------------------------------
-      # 6. Install required libraries
-      # ------------------------------------------------------------
-      - name: Install libraries
+      # ----------------------------------------------------------
+      # 6. Update Arduino library index
+      # ----------------------------------------------------------
+      - name: Update library index
         run: |
+          set -e
+
           arduino-cli lib update-index
 
-          # WiFiManager
-          arduino-cli lib install "WiFiManager@2.0.17"
+      # ----------------------------------------------------------
+      # 7. Install required libraries
+      # ----------------------------------------------------------
+      - name: Install required libraries
+        run: |
+          set -e
 
-          # Async Web Server stack
-          arduino-cli lib install "ESP Async WebServer@3.6.0"
-          arduino-cli lib install "Async TCP@3.3.2"
-
-          # ArduinoJson
-          arduino-cli lib install "ArduinoJson@7.4.2"
-
-          # Adafruit display / sensor libraries
+          arduino-cli lib install "WiFiManager"
+          arduino-cli lib install "ESP Async WebServer"
+          arduino-cli lib install "Async TCP"
+          arduino-cli lib install "ArduinoJson"
           arduino-cli lib install "Adafruit GFX Library"
           arduino-cli lib install "Adafruit SSD1306"
           arduino-cli lib install "Adafruit BME280 Library"
-
-          # DHT
           arduino-cli lib install "DHT sensor library"
-
-          # BH1750
           arduino-cli lib install "BH1750"
-
-          # OneWire / Dallas temperature
           arduino-cli lib install "OneWire"
           arduino-cli lib install "DallasTemperature"
 
           echo ""
-          echo "========================================"
-          echo "Installed Arduino libraries:"
-          echo "========================================"
-
+          echo "Installed libraries:"
           arduino-cli lib list
 
-      # ------------------------------------------------------------
-      # 7. Verify sketch exists
-      # ------------------------------------------------------------
+      # ----------------------------------------------------------
+      # 8. Verify source file
+      # ----------------------------------------------------------
       - name: Verify sketch
         run: |
+          set -e
+
+          echo "Repository contents:"
+          find . -maxdepth 2 -type f -print
+
           test -f "ESP32 Weather Station.ino"
 
+          echo ""
           echo "Sketch found:"
           ls -lh "ESP32 Weather Station.ino"
 
-      # ------------------------------------------------------------
-      # 8. Compile
-      # ------------------------------------------------------------
+      # ----------------------------------------------------------
+      # 9. Compile firmware
+      # ----------------------------------------------------------
       - name: Compile firmware
         run: |
+          set -e
+
           mkdir -p build
 
           arduino-cli compile \
@@ -129,34 +134,32 @@ jobs:
             --build-path build \
             --export-binaries \
             --warnings all \
-            "."
+            .
 
-      # ------------------------------------------------------------
-      # 9. Show build output
-      # ------------------------------------------------------------
-      - name: Show build artifacts
+      # ----------------------------------------------------------
+      # 10. Show generated files
+      # ----------------------------------------------------------
+      - name: Inspect build output
         if: always()
         run: |
           echo ""
-          echo "========================================"
-          echo "Build directory:"
-          echo "========================================"
+          echo "======================================"
+          echo "BUILD OUTPUT"
+          echo "======================================"
 
-          find build -maxdepth 2 -type f -printf '%p\n' | sort
+          find build -type f -print | sort || true
 
           echo ""
-          echo "========================================"
-          echo "Binary files:"
-          echo "========================================"
+          echo "======================================"
+          echo "BINARIES"
+          echo "======================================"
 
-          find build -type f \
-            \( -name "*.bin" -o -name "*.elf" -o -name "*.map" \) \
-            -exec ls -lh {} \; || true
+          find build -type f -name "*.bin" -exec ls -lh {} \; || true
 
-      # ------------------------------------------------------------
-      # 10. Upload compiled firmware
-      # ------------------------------------------------------------
-      - name: Upload firmware artifacts
+      # ----------------------------------------------------------
+      # 11. Upload firmware
+      # ----------------------------------------------------------
+      - name: Upload firmware artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
