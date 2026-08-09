@@ -197,10 +197,10 @@
 #define PREF_OWM_KEY    "owm_key"
 #define PREF_TZ_STR     "tz_str"
 #define PREF_AP_PASS    "ap_pass"       // Offline AP password (saved in prefs)
-#define PREF_WIFI_SEED   "wifi_seed_v1" // One-time compiled Wi-Fi default seed
-#define DEFAULT_WIFI_SSID "Airtel_2.4GHz"
-#define DEFAULT_WIFI_PASS "Kgf@0987"
+#define PREF_WX_CITY    "wx_city"       // Persistent OpenWeather location
+#define PREF_WX_COUNTRY "wx_country"
 #define FALLBACK_AP_PASS "weather123"   // Default AP password for offline access
+#define WEATHER_REFRESH_MS (10UL*60UL*1000UL)  // Persistent OWM refresh interval
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //   PERIPHERAL OBJECTS
@@ -331,6 +331,20 @@ struct OverrideData {
 };
 OverrideData overrideData = {};
 
+struct PersistentWeatherData {
+  char city[48];
+  char country[8];
+  char description[48];
+  char iconCode[8];
+  char timeStr[12];
+  char timezone[40];
+  float tempC, feelsLike, humidity, pressure, windSpeed;
+  int clouds;
+  uint32_t updatedMs;
+  bool valid;
+};
+PersistentWeatherData savedWeather = {};
+
 volatile DisplayState displayState  = DISP_LOCAL;
 volatile uint32_t     overrideEndMs = 0;
 
@@ -340,8 +354,10 @@ volatile uint32_t     overrideEndMs = 0;
 struct SavedConfig {
   int32_t tzOffsetSec; char tzStr[40]; char owmApiKey[48]; char wifiSsid[64]; char wifiPass[64];
   char apPass[32];   // Offline fallback AP password
+  char weatherCity[48];
+  char weatherCountry[8];
 };
-SavedConfig cfg = { 19800, "IST-5:30", "", "", "", FALLBACK_AP_PASS };
+SavedConfig cfg = { 19800, "IST-5:30", "", "", "", FALLBACK_AP_PASS, "", "" };
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //   V9 NEW: RUNTIME SECURITY CONFIG (NVS-backed, overrides compiled defaults)
@@ -426,6 +442,8 @@ void broadcastWsUpdate();
 bool checkApiKey(AsyncWebServerRequest* req); bool checkBasicAuth(AsyncWebServerRequest* req);
 void loadConfig(); void saveConfig();
 bool fetchWeatherAndTime(const char* city, const char* countryCode);
+bool fetchPersistentWeather();
+bool fetchWeatherRaw(const char* city, const char* countryCode, PersistentWeatherData* out);
 bool connectHiddenWifi(const char* ssid, const char* password);
 void formatUtcOffset(long offsetSec, char* out, size_t outLen);
 float medianOf(float* arr, uint8_t n);
@@ -991,6 +1009,20 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
 .gtime-axis{display:flex;justify-content:space-between;font-size:8px;color:var(--dim);
   margin-top:3px;font-family:'Share Tech Mono',monospace;padding:0 2px}
 
+/* ── REAL TELEMETRY SPLIT ── */
+.telemetry-split{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.telemetry-panel{min-width:0}
+.telemetry-panel .mpanel{height:100%}
+.telemetry-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+.telemetry-grid .kv{min-width:0}
+.telemetry-grid .k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.telemetry-grid .v{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.online-weather{margin-top:8px;border-top:1px solid var(--bdr);padding-top:8px}
+.location-chip{display:inline-block;padding:3px 7px;border:1px solid var(--bdr2);border-radius:10px;color:var(--c2);font-family:'Share Tech Mono',monospace;font-size:9px}
+.data-note{font-size:9px;color:var(--dim);line-height:1.4;margin-top:6px}
+@media(max-width:960px){.telemetry-split{grid-template-columns:1fr}}
+@media(max-width:620px){.telemetry-grid{grid-template-columns:1fr}}
+
 /* ── LOWER ── */
 .lower-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
 
@@ -1247,6 +1279,7 @@ input::placeholder{color:var(--dim)}
     <button class="sb-item"     data-pg="graphs"    onclick="nav(this,'graphs')"><span class="ico">〜</span>Graphs</button>
     <button class="sb-item"     data-pg="sensors"   onclick="nav(this,'sensors')"><span class="ico">◈</span>Sensors</button>
     <button class="sb-item"     data-pg="wxsearch"  onclick="nav(this,'wxsearch')"><span class="ico">⊕</span>Weather Search</button>
+    <button class="sb-item"     data-pg="location"  onclick="nav(this,'location')"><span class="ico">⌖</span>Location Config</button>
     <button class="sb-item"     data-pg="wtime"     onclick="nav(this,'wtime')"><span class="ico">◷</span>World Time</button>
     <button class="sb-item"     data-pg="evtlog"    onclick="nav(this,'evtlog')"><span class="ico">≡</span>Event Log</button>
     <button class="sb-item"     data-pg="settings"  onclick="nav(this,'settings')"><span class="ico">⚙</span>Settings</button>
@@ -1362,6 +1395,89 @@ input::placeholder{color:var(--dim)}
       </div>
       <canvas class="gcvs" id="gv-p"></canvas>
       <div class="gtime-axis"><span>-24h</span><span>-18h</span><span>-12h</span><span>-6h</span><span>Now</span></div>
+    </div>
+  </div>
+
+  <!-- REAL SENSOR + ONLINE SYSTEM DATA -->
+  <div class="telemetry-split" style="margin-top:8px">
+    <div class="telemetry-panel panel">
+      <div class="ph">REAL SENSOR DATA — NO FAKE VALUES</div>
+      <div class="telemetry-grid">
+        <div class="kv"><span class="k">DHT22 Temp</span><span class="v gr" id="rt-dht-t">--</span></div>
+        <div class="kv"><span class="k">DHT22 Humidity</span><span class="v gr" id="rt-dht-h">--</span></div>
+        <div class="kv"><span class="k">BME280 Temp</span><span class="v" id="rt-bme-t">--</span></div>
+        <div class="kv"><span class="k">BME280 Humidity</span><span class="v" id="rt-bme-h">--</span></div>
+        <div class="kv"><span class="k">Pressure</span><span class="v" id="rt-bme-p">--</span></div>
+        <div class="kv"><span class="k">Altitude</span><span class="v" id="rt-alt">--</span></div>
+        <div class="kv"><span class="k">BH1750 Lux</span><span class="v" id="rt-lux">--</span></div>
+        <div class="kv"><span class="k">DS18B20 #1</span><span class="v" id="rt-ds1">--</span></div>
+        <div class="kv"><span class="k">DS18B20 #2</span><span class="v" id="rt-ds2">--</span></div>
+        <div class="kv"><span class="k">DS18 Count</span><span class="v" id="rt-dsc">--</span></div>
+        <div class="kv"><span class="k">DS Min / Max</span><span class="v" id="rt-dsmm">--</span></div>
+        <div class="kv"><span class="k">Heat Index</span><span class="v" id="rt-hi">--</span></div>
+        <div class="kv"><span class="k">Dew Point</span><span class="v" id="rt-dew">--</span></div>
+        <div class="kv"><span class="k">Pressure Trend</span><span class="v" id="rt-trend">--</span></div>
+        <div class="kv"><span class="k">Rain Probability</span><span class="v" id="rt-rain">--</span></div>
+        <div class="kv"><span class="k">Snapshot</span><span class="v" id="rt-snap">--</span></div>
+      </div>
+      <div class="online-weather">
+        <div class="sect" style="font-size:9px">SENSOR HEALTH / QUALITY</div>
+        <div class="telemetry-grid">
+          <div class="kv"><span class="k">DHT22</span><span class="v" id="rt-dht-health">--</span></div>
+          <div class="kv"><span class="k">BME280</span><span class="v" id="rt-bme-health">--</span></div>
+          <div class="kv"><span class="k">BH1750</span><span class="v" id="rt-bh-health">--</span></div>
+          <div class="kv"><span class="k">DS18B20</span><span class="v" id="rt-ds-health">--</span></div>
+          <div class="kv"><span class="k">Confidence D/B/BH/DS</span><span class="v" id="rt-conf">--</span></div>
+          <div class="kv"><span class="k">Retries D/B/BH/DS</span><span class="v" id="rt-retries">--</span></div>
+          <div class="kv"><span class="k">Errors D/B/BH/DS</span><span class="v" id="rt-errs">--</span></div>
+        </div>
+      </div>
+      <div class="data-note">Only successful sensor reads are displayed. Missing hardware stays OFFLINE/--.</div>
+    </div>
+
+    <div class="telemetry-panel panel">
+      <div class="ph">ONLINE SYSTEM DATA — COMPLETE STATUS</div>
+      <div class="telemetry-grid">
+        <div class="kv"><span class="k">Internet / WiFi</span><span class="v" id="rt-wifi">--</span></div>
+        <div class="kv"><span class="k">SSID</span><span class="v" id="rt-ssid">--</span></div>
+        <div class="kv"><span class="k">STA IP</span><span class="v cy" id="rt-ip">--</span></div>
+        <div class="kv"><span class="k">RSSI</span><span class="v" id="rt-rssi">--</span></div>
+        <div class="kv"><span class="k">AP SSID</span><span class="v" id="rt-apssid">--</span></div>
+        <div class="kv"><span class="k">AP IP</span><span class="v cy" id="rt-apip">--</span></div>
+        <div class="kv"><span class="k">AP Clients</span><span class="v" id="rt-apsta">--</span></div>
+        <div class="kv"><span class="k">Uptime</span><span class="v" id="rt-up">--</span></div>
+        <div class="kv"><span class="k">Free Heap</span><span class="v" id="rt-heap">--</span></div>
+        <div class="kv"><span class="k">Heap Fragmentation</span><span class="v" id="rt-frag">--</span></div>
+        <div class="kv"><span class="k">Flash Used / Total</span><span class="v" id="rt-fs">--</span></div>
+        <div class="kv"><span class="k">Firmware</span><span class="v" id="rt-fw">--</span></div>
+        <div class="kv"><span class="k">CPU</span><span class="v" id="rt-cpu">--</span></div>
+        <div class="kv"><span class="k">Chip Revision</span><span class="v" id="rt-chip">--</span></div>
+        <div class="kv"><span class="k">MAC</span><span class="v" id="rt-mac">--</span></div>
+        <div class="kv"><span class="k">Min Heap Ever</span><span class="v" id="rt-minheap">--</span></div>
+        <div class="kv"><span class="k">OLED</span><span class="v" id="rt-oled">--</span></div>
+        <div class="kv"><span class="k">Boot Confirmed</span><span class="v" id="rt-boot">--</span></div>
+        <div class="kv"><span class="k">Safe Mode</span><span class="v" id="rt-safe">--</span></div>
+        <div class="kv"><span class="k">I2C Recoveries</span><span class="v" id="rt-i2c">--</span></div>
+        <div class="kv"><span class="k">WiFi Hard Resets</span><span class="v" id="rt-whr">--</span></div>
+        <div class="kv"><span class="k">WebSocket</span><span class="v" id="rt-ws">--</span></div>
+        <div class="kv"><span class="k">Clock / NTP</span><span class="v" id="rt-ntp">--</span></div>
+      </div>
+      <div class="online-weather">
+        <div class="sect" style="font-size:9px">SAVED ONLINE WEATHER</div>
+        <div><span class="location-chip" id="rt-location">NO LOCATION SET</span></div>
+        <div class="telemetry-grid">
+          <div class="kv"><span class="k">Condition</span><span class="v" id="rt-wx-cond">--</span></div>
+          <div class="kv"><span class="k">Temperature</span><span class="v" id="rt-wx-temp">--</span></div>
+          <div class="kv"><span class="k">Feels Like</span><span class="v" id="rt-wx-feel">--</span></div>
+          <div class="kv"><span class="k">Humidity</span><span class="v" id="rt-wx-hum">--</span></div>
+          <div class="kv"><span class="k">Pressure</span><span class="v" id="rt-wx-pres">--</span></div>
+          <div class="kv"><span class="k">Wind</span><span class="v" id="rt-wx-wind">--</span></div>
+          <div class="kv"><span class="k">Clouds</span><span class="v" id="rt-wx-cloud">--</span></div>
+          <div class="kv"><span class="k">Local Time</span><span class="v" id="rt-wx-time">--</span></div>
+          <div class="kv"><span class="k">Timezone</span><span class="v" id="rt-wx-zone">--</span></div>
+        </div>
+        <div class="data-note" id="rt-wx-updated">No successful API reading yet.</div>
+      </div>
     </div>
   </div>
 
@@ -1490,6 +1606,31 @@ input::placeholder{color:var(--dim)}
       <div class="kv"><span class="k">Confidence</span><span class="v" id="sg-dsc">--%</span></div>
       <div class="kv"><span class="k">Retries</span><span class="v" id="sg-dsr">--</span></div>
       <div class="kv"><span class="k">Errors</span><span class="v rd" id="sg-dse">--</span></div>
+    </div>
+  </div>
+</div></div>
+
+<!-- LOCATION CONFIGURATION PAGE -->
+<div id="pg-location" class="pg"><div class="page-wrap">
+  <div class="sect">PERSISTENT WEATHER LOCATION</div>
+  <p style="font-size:12px;color:var(--dim);margin-bottom:12px;font-weight:600">
+    Set one location for continuous OpenWeatherMap updates. It remains saved across reboot until you change or clear it.
+  </p>
+  <div class="g2">
+    <div class="mpanel">
+      <div class="fld"><label>CITY / LOCATION</label><input type="text" id="loc-city" maxlength="47" placeholder="e.g. Lucknow"></div>
+      <div class="fld"><label>COUNTRY CODE (OPTIONAL)</label><input type="text" id="loc-country" maxlength="7" placeholder="e.g. IN"></div>
+      <button class="fbtn" onclick="saveLocation()">SAVE & FETCH LOCATION</button>
+      <button class="fbtn sec" onclick="clearLocation()">CLEAR SAVED LOCATION</button>
+      <div class="smsg" id="loc-msg"></div>
+    </div>
+    <div class="mpanel">
+      <div class="sect" style="font-size:9px">CURRENT SAVED LOCATION</div>
+      <div class="kv"><span class="k">Location</span><span class="v cy" id="loc-current">NONE</span></div>
+      <div class="kv"><span class="k">API Key</span><span class="v" id="loc-api">NOT SET</span></div>
+      <div class="kv"><span class="k">Internet</span><span class="v" id="loc-internet">OFFLINE</span></div>
+      <div class="kv"><span class="k">Last Successful Update</span><span class="v" id="loc-updated">--</span></div>
+      <div class="data-note">A location is not treated as ONLINE until OpenWeatherMap returns a successful reading.</div>
     </div>
   </div>
 </div></div>
@@ -1949,6 +2090,74 @@ function conn() {
     ggL.push(d.lux); ggD.push(d.ds18_temp); ggR.push(d.rain_prob);
     setText('gc-t', fmt(d.temp,1)+'°C'); setText('gc-h', fmt(d.humidity,0)+'%'); setText('gc-p', fmt(d.pressure,1)+' hPa');
 
+    // Complete real sensor telemetry
+    setText('rt-dht-t', d.dht_ok ? fmt(d.temp,1)+' °C' : 'OFFLINE');
+    setText('rt-dht-h', d.dht_ok ? fmt(d.humidity,1)+' %' : 'OFFLINE');
+    setText('rt-bme-t', d.bme_ok ? fmt(d.bme_temp,1)+' °C' : 'OFFLINE');
+    setText('rt-bme-h', d.bme_ok ? fmt(d.bme_humidity,1)+' %' : 'OFFLINE');
+    setText('rt-bme-p', d.bme_ok ? fmt(d.pressure,1)+' hPa' : 'OFFLINE');
+    setText('rt-alt', d.bme_ok ? fmt(d.altitude,1)+' m' : 'OFFLINE');
+    setText('rt-lux', d.bh_ok ? fmt(d.lux,1)+' lx' : 'OFFLINE');
+    setText('rt-ds1', d.ds_ok ? fmt(d.ds18_temp,1)+' °C' : 'OFFLINE');
+    setText('rt-ds2', (d.ds_ok && d.ds18_count>1) ? fmt(d.ds18_temp_2,1)+' °C' : (d.ds_ok ? 'N/A' : 'OFFLINE'));
+    setText('rt-dsc', d.ds_ok ? String(d.ds18_count) : 'OFFLINE');
+    setText('rt-dsmm', d.ds_ok ? fmt(d.ds18_min,1)+' / '+fmt(d.ds18_max,1)+' °C' : 'OFFLINE');
+    setText('rt-hi', d.dht_ok ? fmt(d.heat_index,1)+' °C' : 'OFFLINE');
+    setText('rt-dew', d.dht_ok ? fmt(d.dew_point,1)+' °C' : 'OFFLINE');
+    setText('rt-trend', d.bme_ok ? ((d.pressure_trend>=0?'+':'')+fmt(d.pressure_trend,2)+' hPa/min') : 'OFFLINE');
+    setText('rt-rain', (d.dht_ok&&d.bme_ok) ? Math.round(d.rain_prob)+' %' : 'OFFLINE');
+    setText('rt-snap', d.snapshot_seq!==undefined ? '#'+d.snapshot_seq : '--');
+    setText('rt-dht-health', (d.dht_health||'OFFLINE')+' · '+(d.dht_confidence||0)+'%');
+    setText('rt-bme-health', (d.bme_health||'OFFLINE')+' · '+(d.bme_confidence||0)+'%');
+    setText('rt-bh-health', (d.bh_health||'OFFLINE')+' · '+(d.bh_confidence||0)+'%');
+    setText('rt-ds-health', (d.ds_health||'OFFLINE')+' · '+(d.ds_confidence||0)+'%');
+    setText('rt-conf', (d.dht_confidence||0)+' / '+(d.bme_confidence||0)+' / '+(d.bh_confidence||0)+' / '+(d.ds_confidence||0));
+    setText('rt-retries', (d.dht_retries||0)+' / '+(d.bme_retries||0)+' / '+(d.bh_retries||0)+' / '+(d.ds_retries||0));
+    setText('rt-errs', (d.dht_errors||0)+' / '+(d.bme_errors||0)+' / '+(d.bh_errors||0)+' / '+(d.ds_errors||0));
+
+    // Complete online/system telemetry
+    setText('rt-wifi', d.wifi_connected ? 'ONLINE' : 'OFFLINE');
+    setText('rt-ssid', d.ssid || (d.wifi_connected ? '--' : 'OFFLINE'));
+    setText('rt-ip', d.sta_ip || 'OFFLINE');
+    setText('rt-rssi', d.wifi_connected ? String(d.rssi)+' dBm' : 'OFFLINE');
+    setText('rt-apssid', d.ap_ssid || '--');
+    setText('rt-apip', d.ap_ip || '--');
+    setText('rt-apsta', d.ap_stations!==undefined ? String(d.ap_stations) : '--');
+    setText('rt-up', d.uptime_s!==undefined ? fmtUp(d.uptime_s) : '--');
+    setText('rt-heap', d.free_heap!==undefined ? Math.round(d.free_heap/1024)+' KB' : '--');
+    setText('rt-frag', (d.heap_frag_pct!==undefined ? d.heap_frag_pct : '--')+'%');
+    setText('rt-fs', d.fs_used!==undefined ? Math.round(d.fs_used/1024)+' / '+Math.round(d.fs_total/1024)+' KB' : '--');
+    setText('rt-fw', d.firmware||'--');
+    setText('rt-cpu', d.cpu_mhz!==undefined ? d.cpu_mhz+' MHz' : '--');
+    setText('rt-chip', d.chip_rev!==undefined ? 'Rev '+d.chip_rev : '--');
+    setText('rt-mac', d.mac||'--');
+    setText('rt-minheap', d.min_heap!==undefined ? Math.round(d.min_heap/1024)+' KB' : '--');
+    setText('rt-oled', d.oled_ok ? 'ONLINE' : 'OFFLINE');
+    setText('rt-boot', d.boot_confirmed ? 'YES' : 'NO');
+    setText('rt-safe', d.safe_mode ? ('YES — '+(d.safe_mode_reason||'')) : 'NO');
+    setText('rt-i2c', d.i2c_recoveries!==undefined ? d.i2c_recoveries : '--');
+    setText('rt-whr', d.wifi_hard_resets!==undefined ? d.wifi_hard_resets : '--');
+    setText('rt-ws', 'LIVE');
+    setText('rt-ntp', d.time_valid ? 'SYNCED / VALID' : 'NOT SYNCED');
+
+    // Persistent real online weather
+    if(d.saved_weather){
+      var sw=d.saved_weather;
+      setText('rt-location', sw.valid ? ((sw.city||'--')+(sw.country?', '+sw.country:'')) : 'LOCATION SAVED — WAITING FOR API');
+      setText('rt-wx-cond', sw.valid ? (sw.description||'--') : '--');
+      setText('rt-wx-temp', sw.valid ? fmt(sw.temp,1)+' °C' : '--');
+      setText('rt-wx-feel', sw.valid ? fmt(sw.feels_like,1)+' °C' : '--');
+      setText('rt-wx-hum', sw.valid ? fmt(sw.humidity,0)+' %' : '--');
+      setText('rt-wx-pres', sw.valid ? fmt(sw.pressure,0)+' hPa' : '--');
+      setText('rt-wx-wind', sw.valid ? fmt(sw.wind,1)+' m/s' : '--');
+      setText('rt-wx-cloud', sw.valid ? String(sw.clouds)+' %' : '--');
+      setText('rt-wx-time', sw.valid ? (sw.time||'--') : '--');
+      setText('rt-wx-zone', sw.valid ? (sw.timezone||'--') : '--');
+      setText('rt-wx-updated', sw.valid ? 'Last successful API update: '+(sw.updated_s ? fmtUp(d.uptime_s-sw.updated_s) : 'recent') : 'No successful API reading yet.');
+    } else {
+      setText('rt-location','NO LOCATION SET');
+    }
+
     // Weather overview
     setText('wx-ico', d.weather==null?'--':wxIco(d.weather));
     setText('wx-cond', d.weather==null?'--':d.weather);
@@ -2013,7 +2222,7 @@ function conn() {
     var ob=document.getElementById('offline-badge');
     if(ob&&d.offline_mode!==undefined){
       ob.style.display=d.offline_mode?'block':'none';
-      if(d.offline_mode) ob.textContent='⚠ OFFLINE MODE — Connect to WeatherStation-Setup → '+(d.ap_ip||'192.168.4.1')+' (pass: weather123)';
+      if(d.offline_mode) ob.textContent='⚠ OFFLINE MODE — Connect to WeatherStation-Setup → '+(d.ap_ip||'192.168.4.1');
     }
 
     // Override
@@ -2040,6 +2249,32 @@ setInterval(function(){
 },5000);
 
 // ── ACTIONS ───────────────────────────────────────────────────────────
+function loadLocation(){
+  apiFetch('/api/location').then(r=>r.json()).then(d=>{
+    document.getElementById('loc-city').value=d.city||'';
+    document.getElementById('loc-country').value=d.country||'';
+    setText('loc-current',d.city?(d.city+(d.country?', '+d.country:'')):'NONE');
+    setText('loc-api',d.api_key_set?'SET':'NOT SET');
+    setText('loc-internet',d.wifi_connected?'ONLINE':'OFFLINE');
+    setText('loc-updated',d.weather_valid?'AVAILABLE':'--');
+  }).catch(()=>{});
+}
+function saveLocation(){
+  var city=document.getElementById('loc-city').value.trim();
+  var country=document.getElementById('loc-country').value.trim();
+  var m=document.getElementById('loc-msg');
+  if(!city){m.textContent='Enter a location or use CLEAR.';m.className='smsg er';return;}
+  m.textContent='Saving and fetching real weather...';m.className='smsg';
+  apiFetch('/api/location',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({city:city,country:country})})
+    .then(r=>r.json()).then(j=>{m.textContent=j.msg||j.error||'Done.';m.className=j.ok?'smsg ok':'smsg er';loadLocation();}).catch(()=>{m.textContent='Network error.';m.className='smsg er';});
+}
+function clearLocation(){
+  var m=document.getElementById('loc-msg');
+  apiFetch('/api/location',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({city:'',country:''})})
+    .then(r=>r.json()).then(j=>{m.textContent=j.msg||j.error||'Done.';m.className=j.ok?'smsg ok':'smsg er';loadLocation();}).catch(()=>{m.textContent='Network error.';m.className='smsg er';});
+}
+loadLocation();
+
 function doSearch(){
   var city=document.getElementById('wx-city').value.trim();
   var cc=document.getElementById('wx-cc').value.trim();
@@ -2047,7 +2282,7 @@ function doSearch(){
   if(!city){m.textContent='Enter city name.';m.className='smsg er';return;}
   m.textContent='Searching...';m.className='smsg';
   apiFetch('/api/weather-search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({city:city,country:cc})})
-    .then(r=>r.json().then(j=>({ok:r.ok,j}))).then(x=>{m.textContent=x.ok?'Showing on OLED for 60s.':x.j.error||'Failed.';m.className=x.ok?'smsg ok':'smsg er';}).catch(()=>{m.textContent='Network error.';m.className='smsg er';});
+    .then(r=>r.json().then(j=>({ok:r.ok,j}))).then(x=>{m.textContent=x.ok?'Search accepted — OLED override will show the real result for 60s.':x.j.error||'Failed.';m.className=x.ok?'smsg ok':'smsg er';}).catch(()=>{m.textContent='Network error.';m.className='smsg er';});
 }
 function doWorldTime(){
   var city=document.getElementById('wt-city').value.trim();
@@ -2139,25 +2374,15 @@ setTimeout(loadSys, 2000);
 //   PREFERENCES
 // ═══════════════════════════════════════════════════════════════════════════════
 void loadConfig() {
-  // The compiled Wi-Fi credentials are used only as the initial/default
-  // configuration. Once the dashboard saves different credentials, NVS wins.
-  // This gives the firmware a working first boot without locking the user
-  // into hard-coded credentials forever.
-  prefs.begin(PREF_NAMESPACE, false);
-
-  const uint8_t wifiSeedVersion = prefs.getUChar(PREF_WIFI_SEED, 0);
-  if (wifiSeedVersion != 1) {
-    prefs.putString(PREF_WIFI_SSID, DEFAULT_WIFI_SSID);
-    prefs.putString(PREF_WIFI_PASS, DEFAULT_WIFI_PASS);
-    prefs.putUChar(PREF_WIFI_SEED, 1);
-  }
-
+  prefs.begin(PREF_NAMESPACE, true);
   cfg.tzOffsetSec = prefs.getInt(PREF_TZ_OFFSET, 19800);
   strlcpy(cfg.tzStr,    prefs.getString(PREF_TZ_STR,   "IST-5:30").c_str(),   sizeof(cfg.tzStr));
   strlcpy(cfg.owmApiKey,prefs.getString(PREF_OWM_KEY,  OWM_API_DEFAULT_KEY).c_str(), sizeof(cfg.owmApiKey));
-  strlcpy(cfg.wifiSsid, prefs.getString(PREF_WIFI_SSID, DEFAULT_WIFI_SSID).c_str(), sizeof(cfg.wifiSsid));
-  strlcpy(cfg.wifiPass, prefs.getString(PREF_WIFI_PASS, DEFAULT_WIFI_PASS).c_str(), sizeof(cfg.wifiPass));
+  strlcpy(cfg.wifiSsid, prefs.getString(PREF_WIFI_SSID,"").c_str(),           sizeof(cfg.wifiSsid));
+  strlcpy(cfg.wifiPass, prefs.getString(PREF_WIFI_PASS,"").c_str(),           sizeof(cfg.wifiPass));
   strlcpy(cfg.apPass,   prefs.getString(PREF_AP_PASS, FALLBACK_AP_PASS).c_str(), sizeof(cfg.apPass));
+  strlcpy(cfg.weatherCity, prefs.getString(PREF_WX_CITY, "").c_str(), sizeof(cfg.weatherCity));
+  strlcpy(cfg.weatherCountry, prefs.getString(PREF_WX_COUNTRY, "").c_str(), sizeof(cfg.weatherCountry));
   prefs.end();
   Serial.printf("[Config] Loaded: tz=%d, owm=%s\n", cfg.tzOffsetSec, cfg.owmApiKey[0] ? "set" : "empty");
 }
@@ -2170,6 +2395,8 @@ void saveConfig() {
   prefs.putString(PREF_WIFI_SSID, cfg.wifiSsid);
   prefs.putString(PREF_WIFI_PASS, cfg.wifiPass);
   prefs.putString(PREF_AP_PASS,   cfg.apPass);
+  prefs.putString(PREF_WX_CITY, cfg.weatherCity);
+  prefs.putString(PREF_WX_COUNTRY, cfg.weatherCountry);
   prefs.end();
   Serial.println(F("[Config] Saved."));
 }
@@ -2230,51 +2457,68 @@ static void urlEncodeAppend(char* out, size_t outLen, size_t& pos, const char* i
   }
   out[pos] = '\0';
 }
-bool fetchWeatherAndTime(const char* city, const char* countryCode) {
-  if (WiFi.status()!=WL_CONNECTED) { Serial.println(F("[OWM] No WiFi.")); return false; }
-  if (cfg.owmApiKey[0]=='\0') { Serial.println(F("[OWM] No API key.")); return false; }
+bool fetchWeatherRaw(const char* city, const char* countryCode, PersistentWeatherData* out) {
+  if (!out || WiFi.status()!=WL_CONNECTED || cfg.owmApiKey[0]=='\0') return false;
   char cityEnc[144]={0}, countryEnc[24]={0}; size_t pEnc=0;
   urlEncodeAppend(cityEnc,sizeof(cityEnc),pEnc,city);
   pEnc=0; urlEncodeAppend(countryEnc,sizeof(countryEnc),pEnc,countryCode?countryCode:"");
-  // V9 self-review fix: worst-case sizing — city[48]/country[8] (from the
-  // /api/weather-search body) can each fully percent-encode to 3x length
-  // (141+21 bytes), and cfg.owmApiKey can be up to 47 chars. 51(prefix)+141+1
-  // +21+7+47+13 = 281 bytes worst case, which would have silently truncated
-  // (and broken) the request in the old 256-byte buffer. Sized with margin.
   char url[320];
   if (countryCode && strlen(countryCode)>0)
     snprintf(url,sizeof(url),"http://api.openweathermap.org/data/2.5/weather?q=%s,%s&appid=%s&units=metric",cityEnc,countryEnc,cfg.owmApiKey);
   else
     snprintf(url,sizeof(url),"http://api.openweathermap.org/data/2.5/weather?q=%s&appid=%s&units=metric",cityEnc,cfg.owmApiKey);
-  // Use explicit WiFiClient to avoid deprecation warning in Core 3.x
   WiFiClient httpClient;
-  HTTPClient http; http.setTimeout(8000); http.begin(httpClient, url);
+  HTTPClient http; http.setTimeout(8000);
+  if (!http.begin(httpClient,url)) return false;
   int httpCode=http.GET();
-  if (httpCode!=200) { Serial.printf("[OWM] HTTP %d\n",httpCode); http.end(); return false; }
+  if (httpCode!=200) { Serial.printf("[OWM] Persistent HTTP %d\n",httpCode); http.end(); return false; }
   String payload=http.getString(); http.end();
-  StaticJsonDocument<768> owmDoc;
-  if (deserializeJson(owmDoc,payload)) return false;
-  OverrideData tmp={};
-  strlcpy(tmp.city,    owmDoc["name"]|city,                     sizeof(tmp.city));
-  strlcpy(tmp.country, owmDoc["sys"]["country"]|"",             sizeof(tmp.country));
-  JsonArray weather=owmDoc["weather"];
-  if (!weather.isNull()&&weather.size()>0) {
-    strlcpy(tmp.description, weather[0]["description"]|"", sizeof(tmp.description));
-    strlcpy(tmp.iconCode,    weather[0]["icon"]|"",        sizeof(tmp.iconCode));
+  StaticJsonDocument<768> doc;
+  if (deserializeJson(doc,payload)) return false;
+  PersistentWeatherData tmp={};
+  strlcpy(tmp.city,doc["name"]|city,sizeof(tmp.city));
+  strlcpy(tmp.country,doc["sys"]["country"]|(countryCode?countryCode:""),sizeof(tmp.country));
+  JsonArray wa=doc["weather"];
+  if (!wa.isNull()&&wa.size()>0) {
+    strlcpy(tmp.description,wa[0]["description"]|"",sizeof(tmp.description));
+    strlcpy(tmp.iconCode,wa[0]["icon"]|"",sizeof(tmp.iconCode));
   }
-  tmp.tempC=owmDoc["main"]["temp"]|0.0f; tmp.feelsLike=owmDoc["main"]["feels_like"]|0.0f;
-  tmp.humidity=owmDoc["main"]["humidity"]|0.0f; tmp.pressure=owmDoc["main"]["pressure"]|0.0f;
-  tmp.windSpeed=owmDoc["wind"]["speed"]|0.0f; tmp.clouds=owmDoc["clouds"]["all"]|0;
-  long owmTzOffset=owmDoc["timezone"]|cfg.tzOffsetSec;
-  time_t utcNow; time(&utcNow);
-  time_t cityLocal=utcNow+(time_t)owmTzOffset; struct tm ctm; gmtime_r(&cityLocal,&ctm);
+  tmp.tempC=doc["main"]["temp"]|NAN; tmp.feelsLike=doc["main"]["feels_like"]|NAN;
+  tmp.humidity=doc["main"]["humidity"]|NAN; tmp.pressure=doc["main"]["pressure"]|NAN;
+  tmp.windSpeed=doc["wind"]["speed"]|NAN; tmp.clouds=doc["clouds"]["all"]|0;
+  long tz=doc["timezone"]|cfg.tzOffsetSec;
+  time_t utcNow; time(&utcNow); time_t cityLocal=utcNow+(time_t)tz;
+  struct tm ctm; gmtime_r(&cityLocal,&ctm);
   snprintf(tmp.timeStr,sizeof(tmp.timeStr),"%02d:%02d:%02d",ctm.tm_hour,ctm.tm_min,ctm.tm_sec);
-  formatUtcOffset(owmTzOffset,tmp.timezone,sizeof(tmp.timezone));
-  tmp.valid=true;
+  formatUtcOffset(tz,tmp.timezone,sizeof(tmp.timezone));
+  tmp.updatedMs=millis(); tmp.valid=true;
+  *out=tmp;
+  return true;
+}
+
+bool fetchPersistentWeather() {
+  if (cfg.weatherCity[0]=='\0') return false;
+  PersistentWeatherData tmp={};
+  if (!fetchWeatherRaw(cfg.weatherCity,cfg.weatherCountry,&tmp)) return false;
+  if (xSemaphoreTake(overrideMutex,pdMS_TO_TICKS(500))==pdTRUE) {
+    savedWeather=tmp;
+    xSemaphoreGive(overrideMutex);
+  }
+  logEvent(EVT_INFO,"OWM updated: %s%s%s",tmp.city,tmp.country[0]?", ":"",tmp.country);
+  return true;
+}
+
+bool fetchWeatherAndTime(const char* city, const char* countryCode) {
+  PersistentWeatherData raw={};
+  if (!fetchWeatherRaw(city,countryCode,&raw)) return false;
+  OverrideData tmp={};
+  strlcpy(tmp.city,raw.city,sizeof(tmp.city)); strlcpy(tmp.country,raw.country,sizeof(tmp.country));
+  strlcpy(tmp.description,raw.description,sizeof(tmp.description)); strlcpy(tmp.iconCode,raw.iconCode,sizeof(tmp.iconCode));
+  strlcpy(tmp.timeStr,raw.timeStr,sizeof(tmp.timeStr)); strlcpy(tmp.timezone,raw.timezone,sizeof(tmp.timezone));
+  tmp.tempC=raw.tempC; tmp.feelsLike=raw.feelsLike; tmp.humidity=raw.humidity; tmp.pressure=raw.pressure;
+  tmp.windSpeed=raw.windSpeed; tmp.clouds=raw.clouds; tmp.valid=true;
   if (xSemaphoreTake(overrideMutex,pdMS_TO_TICKS(500))==pdTRUE) {
     overrideData=tmp;
-    // BUG3 FIX: write displayState and overrideEndMs inside the same mutex block
-    // to prevent displayTask from reading DISP_OVERRIDE before overrideEndMs is set.
     overrideEndMs=millis()+OVERRIDE_DURATION_MS;
     displayState=DISP_OVERRIDE;
     xSemaphoreGive(overrideMutex);
@@ -2969,7 +3213,7 @@ void displayTask(void* pvParam) {
 void wifiTask(void* pvParam) {
   esp_task_wdt_add(NULL);
   static uint8_t  wifiRetries=0;
-  static uint32_t lastReconMs=0, lastCleanupMs=0;
+  static uint32_t lastReconMs=0, lastCleanupMs=0, lastWeatherMs=0;
   static uint32_t backoff=5000;  // BUG1 FIX: must be static — non-static resets to 5000 every iteration
   for (;;) {
     esp_task_wdt_reset();
@@ -2995,6 +3239,14 @@ void wifiTask(void* pvParam) {
     } else if (!offlineMode && WiFi.status()==WL_CONNECTED) {
       if (wifiRetries>0) { Serial.printf("[WiFi] Reconnected: %s\n",WiFi.localIP().toString().c_str()); wifiRetries=0; backoff=5000; wifiHardFailStreak=0; }
     }
+    // Persistent OpenWeather location: refresh only when Internet is actually available.
+    // No location or no API key means no request and no fabricated data.
+    if (WiFi.status()==WL_CONNECTED && cfg.weatherCity[0]!='\0' && cfg.owmApiKey[0]!='\0' &&
+        (lastWeatherMs==0 || now-lastWeatherMs>=WEATHER_REFRESH_MS)) {
+      lastWeatherMs=now;
+      if (!fetchPersistentWeather()) logEvent(EVT_WARN,"OWM refresh failed for saved location");
+    }
+
     // V7 FIX: periodic WebSocket client cleanup prevents memory leak from disconnected clients
     if (now-lastCleanupMs>=WS_CLEANUP_INTERVAL_MS) {
       lastCleanupMs=now;
@@ -3093,9 +3345,12 @@ void broadcastWsUpdate() {
   char tsBuf[12]; snprintf(tsBuf,sizeof(tsBuf),"%02d:%02d:%02d",ti.tm_hour,ti.tm_min,ti.tm_sec);
   char ipBuf[16]; strncpy(ipBuf,WiFi.localIP().toString().c_str(),sizeof(ipBuf)-1); ipBuf[15]=0;
   size_t fsTotal=LittleFS.totalBytes(),fsUsed=LittleFS.usedBytes();
-  StaticJsonDocument<1280> doc;
+  StaticJsonDocument<2048> doc;
   doc["temp"]      =s.dhtOK?roundf(s.dhtTemp*10)/10.0f:NAN;
+  doc["dht_temp"]=doc["temp"];
   doc["humidity"]  =s.dhtOK?roundf(s.dhtHumidity*10)/10.0f:NAN;
+  doc["bme_temp"] =s.bmeOK?roundf(s.bmeTemp*10)/10.0f:NAN;
+  doc["bme_humidity"] =s.bmeOK?roundf(s.bmeHumidity*10)/10.0f:NAN;
   doc["pressure"]  =s.bmeOK?roundf(s.bmePressure*10)/10.0f:NAN;
   doc["altitude"]  =s.bmeOK?roundf(s.altitudeM):NAN;
   doc["heat_index"]=s.dhtOK?roundf(s.heatIndex*10)/10.0f:NAN;
@@ -3108,7 +3363,9 @@ void broadcastWsUpdate() {
   doc["rain_prob"] =(s.dhtOK&&s.bmeOK)?s.rainProbPct:NAN;
   doc["weather"]   =(s.dhtOK&&s.bmeOK)?weatherClassification(s.rainProbPct):"";
   doc["dht_ok"]=s.dhtOK; doc["bme_ok"]=s.bmeOK; doc["bh_ok"]=s.bh1750OK; doc["ds_ok"]=s.ds18OK;
-  doc["rssi"]=WiFi.RSSI(); doc["ip"]=ipBuf;
+  doc["rssi"]=WiFi.status()==WL_CONNECTED?WiFi.RSSI():0; doc["ip"]=ipBuf;
+  doc["ssid"]=WiFi.status()==WL_CONNECTED?WiFi.SSID():"";
+  doc["ap_ssid"]=AP_SSID; doc["ap_stations"]=WiFi.softAPgetStationNum();
   doc["time"]=tsBuf; doc["free_heap"]=esp_get_free_heap_size(); doc["uptime_s"]=millis()/1000UL;
   doc["fs_used"]=(uint32_t)fsUsed; doc["fs_total"]=(uint32_t)fsTotal;
   doc["override_active"]=(displayState==DISP_OVERRIDE);
@@ -3122,6 +3379,11 @@ void broadcastWsUpdate() {
   uint32_t fH=esp_get_free_heap_size(); uint32_t lB=(uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
   doc["heap_frag_pct"]=(fH>0)?(uint8_t)(100UL-(100UL*lB)/fH):0;
   doc["firmware"]=FIRMWARE_VERSION;
+  doc["cpu_mhz"]=ESP.getCpuFreqMHz();
+  doc["chip_rev"]=ESP.getChipRevision();
+  doc["mac"]=WiFi.macAddress();
+  doc["min_heap"]=esp_get_minimum_free_heap_size();
+  doc["time_valid"]=(bool)getLocalTime(&ti);
   doc["offline_mode"]=(bool)offlineMode;
   doc["wifi_connected"]=(WiFi.status()==WL_CONNECTED);
   doc["sta_ip"]=WiFi.localIP().toString();
@@ -3132,7 +3394,16 @@ void broadcastWsUpdate() {
   doc["i2c_recoveries"]=(uint32_t)i2cRecoveryCount;
   doc["wifi_hard_resets"]=(uint32_t)wifiHardResetCount;
   doc["boot_confirmed"]=bootConfirmed;
-  String out; out.reserve(1250); serializeJson(doc,out);
+  if (xSemaphoreTake(overrideMutex,pdMS_TO_TICKS(20))==pdTRUE) {
+    JsonObject sw=doc.createNestedObject("saved_weather");
+    sw["valid"]=savedWeather.valid; sw["city"]=savedWeather.city; sw["country"]=savedWeather.country;
+    sw["description"]=savedWeather.description; sw["temp"]=savedWeather.tempC; sw["feels_like"]=savedWeather.feelsLike;
+    sw["humidity"]=savedWeather.humidity; sw["pressure"]=savedWeather.pressure; sw["wind"]=savedWeather.windSpeed;
+    sw["clouds"]=savedWeather.clouds; sw["time"]=savedWeather.timeStr; sw["timezone"]=savedWeather.timezone;
+    sw["updated_s"]=savedWeather.valid ? ((millis()-savedWeather.updatedMs)/1000UL) : 0;
+    xSemaphoreGive(overrideMutex);
+  }
+  String out; out.reserve(1900); serializeJson(doc,out);
   wsTextAll(out);  // V7: mutex-protected
 }
 
@@ -3413,8 +3684,9 @@ void setupWebServer() {
     struct tm ti; getLocalTime(&ti);
     char tsBuf[12]; snprintf(tsBuf,sizeof(tsBuf),"%02d:%02d:%02d",ti.tm_hour,ti.tm_min,ti.tm_sec);
     char ipBuf[16]; strncpy(ipBuf,WiFi.localIP().toString().c_str(),sizeof(ipBuf)-1); ipBuf[15]=0;
-    StaticJsonDocument<1024> doc;
+    StaticJsonDocument<2048> doc;
     doc["temp"]=s.dhtOK?roundf(s.dhtTemp*10)/10.0f:NAN; doc["humidity"]=s.dhtOK?roundf(s.dhtHumidity*10)/10.0f:NAN;
+    doc["bme_temp"]=s.bmeOK?roundf(s.bmeTemp*10)/10.0f:NAN; doc["bme_humidity"]=s.bmeOK?roundf(s.bmeHumidity*10)/10.0f:NAN;
     doc["pressure"]=s.bmeOK?roundf(s.bmePressure*10)/10.0f:NAN; doc["altitude"]=s.bmeOK?roundf(s.altitudeM):NAN;
     doc["heat_index"]=s.dhtOK?roundf(s.heatIndex*10)/10.0f:NAN; doc["dew_point"]=s.dhtOK?roundf(s.dewPoint*10)/10.0f:NAN;
     doc["lux"]=s.bh1750OK?s.lux:NAN; doc["ds18_temp"]=s.ds18OK?roundf(s.ds18Temp[0]*10)/10.0f:NAN;
@@ -3425,7 +3697,9 @@ void setupWebServer() {
     doc["rain_prob"]=(s.dhtOK&&s.bmeOK)?s.rainProbPct:NAN;
     doc["weather"]=(s.dhtOK&&s.bmeOK)?weatherClassification(s.rainProbPct):"";
     doc["dht_ok"]=s.dhtOK; doc["bme_ok"]=s.bmeOK; doc["bh_ok"]=s.bh1750OK; doc["ds_ok"]=s.ds18OK;
-    doc["rssi"]=WiFi.RSSI(); doc["ip"]=ipBuf; doc["time"]=tsBuf; doc["free_heap"]=esp_get_free_heap_size();
+    doc["rssi"]=WiFi.status()==WL_CONNECTED?WiFi.RSSI():0; doc["ip"]=ipBuf;
+  doc["ssid"]=WiFi.status()==WL_CONNECTED?WiFi.SSID():"";
+  doc["ap_ssid"]=AP_SSID; doc["ap_stations"]=WiFi.softAPgetStationNum(); doc["time"]=tsBuf; doc["free_heap"]=esp_get_free_heap_size();
     doc["uptime_s"]=millis()/1000UL; doc["fs_used"]=(uint32_t)LittleFS.usedBytes(); doc["fs_total"]=(uint32_t)LittleFS.totalBytes();
     doc["firmware"]=FIRMWARE_VERSION;
     doc["dht_confidence"]=s.dhtConfidence; doc["bme_confidence"]=s.bmeConfidence; doc["bh_confidence"]=s.bhConfidence; doc["ds_confidence"]=s.dsConfidence;
@@ -3506,6 +3780,51 @@ void setupWebServer() {
         }
         req->send(200,"application/json","{\"ok\":true,\"msg\":\"Config saved.\"}");
       } else { req->send(200,"application/json","{\"ok\":true,\"msg\":\"No changes.\"}"); }
+    }
+  );
+
+  server.on("/api/location", HTTP_GET, [](AsyncWebServerRequest* req) {
+    if (!checkBasicAuth(req)) return;
+    StaticJsonDocument<256> doc;
+    doc["city"]=cfg.weatherCity; doc["country"]=cfg.weatherCountry;
+    doc["api_key_set"]=(cfg.owmApiKey[0]!='\0');
+    doc["wifi_connected"]=(WiFi.status()==WL_CONNECTED);
+    bool valid=false;
+    if (xSemaphoreTake(overrideMutex,pdMS_TO_TICKS(100))==pdTRUE) { valid=savedWeather.valid; xSemaphoreGive(overrideMutex); }
+    doc["weather_valid"]=valid;
+    String out; serializeJson(doc,out); req->send(200,"application/json",out);
+  });
+
+  server.on("/api/location", HTTP_POST,
+    [](AsyncWebServerRequest* req){}, nullptr,
+    [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index==0) {
+        if (!checkBasicAuth(req)) return;
+        if (!checkOriginSameHost(req)) { req->send(403,"application/json","{\"error\":\"Cross-origin request blocked\"}"); return; }
+        if (rejectIfBodyTooLarge(req,total)) return;
+        req->_tempObject=new String();
+      }
+      String* body=(String*)req->_tempObject; if (!body) return;
+      body->concat((const char*)data,len);
+      if (index+len!=total) return;
+      StaticJsonDocument<192> doc; DeserializationError err=deserializeJson(doc,*body);
+      delete body; req->_tempObject=nullptr;
+      if (err) { req->send(400,"application/json","{\"error\":\"Bad JSON\"}"); return; }
+      const char* city=doc["city"]|""; const char* country=doc["country"]|"";
+      for (const char* c=city;*c;c++) if ((uint8_t)*c<0x20) { req->send(400,"application/json","{\"error\":\"Invalid city\"}"); return; }
+      for (const char* c=country;*c;c++) if ((uint8_t)*c<0x20) { req->send(400,"application/json","{\"error\":\"Invalid country\"}"); return; }
+      if (strlen(city)==0) {
+        cfg.weatherCity[0]='\0'; cfg.weatherCountry[0]='\0';
+        if (xSemaphoreTake(overrideMutex,pdMS_TO_TICKS(100))==pdTRUE) { memset(&savedWeather,0,sizeof(savedWeather)); xSemaphoreGive(overrideMutex); }
+        saveConfig();
+        req->send(200,"application/json","{\"ok\":true,\"msg\":\"Saved weather location cleared.\"}");
+        return;
+      }
+      strlcpy(cfg.weatherCity,city,sizeof(cfg.weatherCity)); strlcpy(cfg.weatherCountry,country,sizeof(cfg.weatherCountry));
+      saveConfig();
+      bool ok=fetchPersistentWeather();
+      if (ok) req->send(200,"application/json","{\"ok\":true,\"msg\":\"Location saved and real weather fetched.\"}");
+      else req->send(200,"application/json","{\"ok\":true,\"msg\":\"Location saved. Waiting for Internet/API availability.\"}");
     }
   );
 
@@ -3813,14 +4132,26 @@ void setup() {
 
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN); Wire.setClock(400000);
 
-  oledOK = display.begin(SSD1306_SWITCHCAPVCC,OLED_ADDR);
+  // Robust OLED detection: try the common 0x3C address first, then 0x3D,
+  // with a short retry window. This fixes modules that are wired correctly but
+  // use the alternate SSD1306 I2C address or need a little startup settling time.
+  uint8_t oledAddrDetected=0;
+  for (uint8_t attempt=0; attempt<3 && !oledAddrDetected; attempt++) {
+    Wire.beginTransmission(OLED_ADDR);
+    if (Wire.endTransmission()==0) oledAddrDetected=OLED_ADDR;
+    else {
+      Wire.beginTransmission(0x3D);
+      if (Wire.endTransmission()==0) oledAddrDetected=0x3D;
+    }
+    if (!oledAddrDetected) delay(120);
+  }
+  if (oledAddrDetected) oledOK=display.begin(SSD1306_SWITCHCAPVCC,oledAddrDetected);
+  else oledOK=false;
   if (!oledOK) {
-    // V8 FIX: a missing/dead OLED is no longer fatal — the device continues
-    // booting with WiFi/web/sensors fully functional; only the local display
-    // is unavailable. (Previously this was an unrecoverable infinite loop.)
-    Serial.println(F("[OLED] Init FAILED — continuing without local display."));
+    Serial.println(F("[OLED] Init FAILED at 0x3C/0x3D — continuing without local display."));
     logEvent(EVT_ERROR,"OLED display not detected at boot");
   } else {
+    Serial.printf("[OLED] SSD1306 detected at 0x%02X\n",oledAddrDetected);
     display.setFont(NULL); display.cp437(true); display.clearDisplay();
     showBootSequence();
   }
@@ -3910,6 +4241,12 @@ void setup() {
   }
 
   setupWebServer();
+
+  // First persistent weather fetch after WiFi/NTP are ready. Failure is non-fatal:
+  // the dashboard explicitly shows "waiting/offline" instead of fake values.
+  if (wifiOK && cfg.weatherCity[0]!='\0' && cfg.owmApiKey[0]!='\0') {
+    fetchPersistentWeather();
+  }
 
   if (!safeModeActive) {
     float it=dht.readTemperature(),ih=dht.readHumidity();
