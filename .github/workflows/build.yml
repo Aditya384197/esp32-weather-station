@@ -26,13 +26,15 @@ jobs:
       # 2. Install Arduino CLI
       # ------------------------------------------------------------
       - name: Install Arduino CLI
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
-            | BINDIR="$HOME/bin" sh
+  run: |
+    mkdir -p "$HOME/bin"
 
-          echo "$HOME/bin" >> "$GITHUB_PATH"
+    curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
+      | BINDIR="$HOME/bin" sh
 
-          arduino-cli version
+    echo "$HOME/bin" >> "$GITHUB_PATH"
+
+    "$HOME/bin/arduino-cli" version
 
       # ------------------------------------------------------------
       # 3. Configure Arduino CLI
