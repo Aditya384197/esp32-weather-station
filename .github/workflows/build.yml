@@ -17,21 +17,21 @@ jobs:
 
     steps:
 
-      # ----------------------------------------------------------
-      # Checkout
-      # ----------------------------------------------------------
+      # ==========================================================
+      # Checkout repository
+      # ==========================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ----------------------------------------------------------
-      # Arduino CLI
-      # ----------------------------------------------------------
+      # ==========================================================
+      # Setup Arduino CLI
+      # ==========================================================
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v2
 
-      # ----------------------------------------------------------
-      # Configure ESP32 package index
-      # ----------------------------------------------------------
+      # ==========================================================
+      # Configure Arduino CLI
+      # ==========================================================
       - name: Configure Arduino CLI
         run: |
           set -e
@@ -43,9 +43,9 @@ jobs:
 
           arduino-cli core update-index
 
-      # ----------------------------------------------------------
-      # Install the verified ESP32 Core
-      # ----------------------------------------------------------
+      # ==========================================================
+      # Install verified ESP32 Arduino Core
+      # ==========================================================
       - name: Install ESP32 Core 3.3.11
         run: |
           set -e
@@ -58,18 +58,18 @@ jobs:
 
           arduino-cli core list
 
-      # ----------------------------------------------------------
+      # ==========================================================
       # Update library index
-      # ----------------------------------------------------------
+      # ==========================================================
       - name: Update Arduino library index
         run: |
           set -e
 
           arduino-cli lib update-index
 
-      # ----------------------------------------------------------
+      # ==========================================================
       # Install required libraries
-      # ----------------------------------------------------------
+      # ==========================================================
       - name: Install Weather Station libraries
         run: |
           set -e
@@ -97,24 +97,37 @@ jobs:
 
           arduino-cli lib list
 
-      # ----------------------------------------------------------
-      # Verify sketch
-      # ----------------------------------------------------------
-      - name: Verify Weather Station sketch
+      # ==========================================================
+      # Verify repository files
+      # ==========================================================
+      - name: Verify project files
         run: |
           set -e
 
           echo "=========================================="
-          echo "SKETCH"
+          echo "PROJECT FILES"
           echo "=========================================="
 
           test -f "esp32-weather-station.ino"
+          test -f "partitions.csv"
 
-          ls -lh "esp32-weather-station.ino"
+          ls -lh \
+            "esp32-weather-station.ino" \
+            "partitions.csv"
 
-      # ----------------------------------------------------------
+          echo ""
+          echo "=========================================="
+          echo "CUSTOM PARTITION TABLE"
+          echo "=========================================="
+
+          cat partitions.csv
+
+      # ==========================================================
       # Compile
-      # ----------------------------------------------------------
+      #
+      # The root partitions.csv is automatically picked up by
+      # Arduino-ESP32's build system.
+      # ==========================================================
       - name: Compile ESP32 Weather Station
         run: |
           set -e
@@ -129,15 +142,30 @@ jobs:
             --warnings all \
             .
 
-      # ----------------------------------------------------------
-      # Verify generated firmware
-      # ----------------------------------------------------------
+      # ==========================================================
+      # Verify partition table actually used
+      # ==========================================================
+      - name: Verify generated partition table
+        run: |
+          set -e
+
+          echo "=========================================="
+          echo "GENERATED PARTITION TABLE"
+          echo "=========================================="
+
+          test -f "build/partitions.csv"
+
+          cat build/partitions.csv
+
+      # ==========================================================
+      # Verify firmware
+      # ==========================================================
       - name: Verify firmware output
         run: |
           set -e
 
           echo "=========================================="
-          echo "BUILD OUTPUT"
+          echo "FIRMWARE OUTPUT"
           echo "=========================================="
 
           test -f "build/esp32-weather-station.ino.bin"
@@ -146,22 +174,20 @@ jobs:
           test -f "build/esp32-weather-station.ino.partitions.bin"
 
           echo ""
-          echo "Firmware successfully generated:"
-          echo ""
-
           ls -lh \
-            build/esp32-weather-station.ino.bin \
-            build/esp32-weather-station.ino.merged.bin \
-            build/esp32-weather-station.ino.bootloader.bin \
-            build/esp32-weather-station.ino.partitions.bin
+            "build/esp32-weather-station.ino.bin" \
+            "build/esp32-weather-station.ino.merged.bin" \
+            "build/esp32-weather-station.ino.bootloader.bin" \
+            "build/esp32-weather-station.ino.partitions.bin"
 
-      # ----------------------------------------------------------
-      # Create a clean firmware package
-      # ----------------------------------------------------------
+      # ==========================================================
+      # Prepare clean firmware package
+      # ==========================================================
       - name: Prepare firmware package
         run: |
           set -e
 
+          rm -rf firmware
           mkdir -p firmware
 
           cp "build/esp32-weather-station.ino.bin" \
@@ -176,15 +202,18 @@ jobs:
           cp "build/esp32-weather-station.ino.partitions.bin" \
              "firmware/esp32-weather-station-partitions.bin"
 
+          cp "build/partitions.csv" \
+             "firmware/partitions.csv"
+
           echo "=========================================="
-          echo "FIRMWARE PACKAGE"
+          echo "FINAL FIRMWARE PACKAGE"
           echo "=========================================="
 
           ls -lh firmware/
 
-      # ----------------------------------------------------------
-      # Upload firmware artifact
-      # ----------------------------------------------------------
+      # ==========================================================
+      # Upload artifact
+      # ==========================================================
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
