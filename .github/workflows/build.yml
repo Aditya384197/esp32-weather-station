@@ -17,12 +17,21 @@ jobs:
 
     steps:
 
+      # ----------------------------------------------------------
+      # Checkout
+      # ----------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ----------------------------------------------------------
+      # Arduino CLI
+      # ----------------------------------------------------------
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v2
 
+      # ----------------------------------------------------------
+      # Configure ESP32 package index
+      # ----------------------------------------------------------
       - name: Configure Arduino CLI
         run: |
           set -e
@@ -34,63 +43,51 @@ jobs:
 
           arduino-cli core update-index
 
-      - name: Install ESP32 Arduino Core 3.3.11
+      # ----------------------------------------------------------
+      # Install the verified ESP32 Core
+      # ----------------------------------------------------------
+      - name: Install ESP32 Core 3.3.11
         run: |
           set -e
 
           arduino-cli core install esp32:esp32@3.3.11
 
-          echo ""
           echo "=========================================="
-          echo "INSTALLED ESP32 CORE"
+          echo "ESP32 CORE"
           echo "=========================================="
 
           arduino-cli core list
 
+      # ----------------------------------------------------------
+      # Update library index
+      # ----------------------------------------------------------
       - name: Update Arduino library index
         run: |
           set -e
 
           arduino-cli lib update-index
 
+      # ----------------------------------------------------------
+      # Install required libraries
+      # ----------------------------------------------------------
       - name: Install Weather Station libraries
         run: |
           set -e
 
-          echo "Installing WiFiManager..."
           arduino-cli lib install "WiFiManager@2.0.17"
-
-          echo "Installing ArduinoJson..."
           arduino-cli lib install "ArduinoJson@7.4.3"
 
-          echo "Installing ESPAsyncWebServer..."
           arduino-cli lib install "ESP Async WebServer@3.6.0"
-
-          echo "Installing AsyncTCP..."
           arduino-cli lib install "Async TCP@3.3.2"
 
-          echo "Installing Adafruit GFX..."
           arduino-cli lib install "Adafruit GFX Library"
-
-          echo "Installing Adafruit SSD1306..."
           arduino-cli lib install "Adafruit SSD1306"
-
-          echo "Installing Adafruit Unified Sensor..."
           arduino-cli lib install "Adafruit Unified Sensor"
-
-          echo "Installing DHT sensor library..."
           arduino-cli lib install "DHT sensor library"
-
-          echo "Installing Adafruit BME280..."
           arduino-cli lib install "Adafruit BME280 Library"
 
-          echo "Installing BH1750..."
           arduino-cli lib install "BH1750@1.3.0"
-
-          echo "Installing OneWire..."
           arduino-cli lib install "OneWire@2.3.8"
-
-          echo "Installing DallasTemperature..."
           arduino-cli lib install "DallasTemperature"
 
           echo ""
@@ -100,33 +97,29 @@ jobs:
 
           arduino-cli lib list
 
+      # ----------------------------------------------------------
+      # Verify sketch
+      # ----------------------------------------------------------
       - name: Verify Weather Station sketch
         run: |
           set -e
 
           echo "=========================================="
-          echo "REPOSITORY CONTENTS"
-          echo "=========================================="
-
-          find . \
-            -maxdepth 3 \
-            -type f \
-            ! -path "./.git/*" \
-            -print | sort
-
-          echo ""
-          echo "=========================================="
-          echo "CHECKING SKETCH"
+          echo "SKETCH"
           echo "=========================================="
 
           test -f "esp32-weather-station.ino"
 
           ls -lh "esp32-weather-station.ino"
 
+      # ----------------------------------------------------------
+      # Compile
+      # ----------------------------------------------------------
       - name: Compile ESP32 Weather Station
         run: |
           set -e
 
+          rm -rf build
           mkdir -p build
 
           arduino-cli compile \
@@ -136,38 +129,66 @@ jobs:
             --warnings all \
             .
 
-      - name: Inspect build output
-        if: always()
+      # ----------------------------------------------------------
+      # Verify generated firmware
+      # ----------------------------------------------------------
+      - name: Verify firmware output
         run: |
-          echo ""
+          set -e
+
           echo "=========================================="
           echo "BUILD OUTPUT"
           echo "=========================================="
 
-          if [ -d build ]; then
-            find build -type f -print | sort
-          else
-            echo "Build directory does not exist."
-          fi
+          test -f "build/esp32-weather-station.ino.bin"
+          test -f "build/esp32-weather-station.ino.merged.bin"
+          test -f "build/esp32-weather-station.ino.bootloader.bin"
+          test -f "build/esp32-weather-station.ino.partitions.bin"
 
           echo ""
+          echo "Firmware successfully generated:"
+          echo ""
+
+          ls -lh \
+            build/esp32-weather-station.ino.bin \
+            build/esp32-weather-station.ino.merged.bin \
+            build/esp32-weather-station.ino.bootloader.bin \
+            build/esp32-weather-station.ino.partitions.bin
+
+      # ----------------------------------------------------------
+      # Create a clean firmware package
+      # ----------------------------------------------------------
+      - name: Prepare firmware package
+        run: |
+          set -e
+
+          mkdir -p firmware
+
+          cp "build/esp32-weather-station.ino.bin" \
+             "firmware/esp32-weather-station.bin"
+
+          cp "build/esp32-weather-station.ino.merged.bin" \
+             "firmware/esp32-weather-station-merged.bin"
+
+          cp "build/esp32-weather-station.ino.bootloader.bin" \
+             "firmware/esp32-weather-station-bootloader.bin"
+
+          cp "build/esp32-weather-station.ino.partitions.bin" \
+             "firmware/esp32-weather-station-partitions.bin"
+
           echo "=========================================="
-          echo "FIRMWARE BINARIES"
+          echo "FIRMWARE PACKAGE"
           echo "=========================================="
 
-          find build \
-            -type f \
-            -name "*.bin" \
-            -exec ls -lh {} \; 2>/dev/null || true
+          ls -lh firmware/
 
-      - name: Upload Weather Station firmware
-        if: success()
+      # ----------------------------------------------------------
+      # Upload firmware artifact
+      # ----------------------------------------------------------
+      - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
           name: esp32-weather-station-firmware
-          path: |
-            build/**/*.bin
-            build/**/*.elf
-            build/**/*.map
+          path: firmware/
           if-no-files-found: error
           retention-days: 30
