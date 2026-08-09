@@ -197,6 +197,9 @@
 #define PREF_OWM_KEY    "owm_key"
 #define PREF_TZ_STR     "tz_str"
 #define PREF_AP_PASS    "ap_pass"       // Offline AP password (saved in prefs)
+#define PREF_WIFI_SEED   "wifi_seed_v1" // One-time compiled Wi-Fi default seed
+#define DEFAULT_WIFI_SSID "Airtel_2.4GHz"
+#define DEFAULT_WIFI_PASS "Kgf@0987"
 #define FALLBACK_AP_PASS "weather123"   // Default AP password for offline access
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2136,12 +2139,24 @@ setTimeout(loadSys, 2000);
 //   PREFERENCES
 // ═══════════════════════════════════════════════════════════════════════════════
 void loadConfig() {
-  prefs.begin(PREF_NAMESPACE, true);
+  // The compiled Wi-Fi credentials are used only as the initial/default
+  // configuration. Once the dashboard saves different credentials, NVS wins.
+  // This gives the firmware a working first boot without locking the user
+  // into hard-coded credentials forever.
+  prefs.begin(PREF_NAMESPACE, false);
+
+  const uint8_t wifiSeedVersion = prefs.getUChar(PREF_WIFI_SEED, 0);
+  if (wifiSeedVersion != 1) {
+    prefs.putString(PREF_WIFI_SSID, DEFAULT_WIFI_SSID);
+    prefs.putString(PREF_WIFI_PASS, DEFAULT_WIFI_PASS);
+    prefs.putUChar(PREF_WIFI_SEED, 1);
+  }
+
   cfg.tzOffsetSec = prefs.getInt(PREF_TZ_OFFSET, 19800);
   strlcpy(cfg.tzStr,    prefs.getString(PREF_TZ_STR,   "IST-5:30").c_str(),   sizeof(cfg.tzStr));
   strlcpy(cfg.owmApiKey,prefs.getString(PREF_OWM_KEY,  OWM_API_DEFAULT_KEY).c_str(), sizeof(cfg.owmApiKey));
-  strlcpy(cfg.wifiSsid, prefs.getString(PREF_WIFI_SSID,"").c_str(),           sizeof(cfg.wifiSsid));
-  strlcpy(cfg.wifiPass, prefs.getString(PREF_WIFI_PASS,"").c_str(),           sizeof(cfg.wifiPass));
+  strlcpy(cfg.wifiSsid, prefs.getString(PREF_WIFI_SSID, DEFAULT_WIFI_SSID).c_str(), sizeof(cfg.wifiSsid));
+  strlcpy(cfg.wifiPass, prefs.getString(PREF_WIFI_PASS, DEFAULT_WIFI_PASS).c_str(), sizeof(cfg.wifiPass));
   strlcpy(cfg.apPass,   prefs.getString(PREF_AP_PASS, FALLBACK_AP_PASS).c_str(), sizeof(cfg.apPass));
   prefs.end();
   Serial.printf("[Config] Loaded: tz=%d, owm=%s\n", cfg.tzOffsetSec, cfg.owmApiKey[0] ? "set" : "empty");
