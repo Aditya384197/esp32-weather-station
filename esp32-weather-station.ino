@@ -75,6 +75,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ESPAsyncWebServer.h>
+#include <DNSServer.h>
 #include <AsyncTCP.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
@@ -208,6 +209,7 @@ BH1750            lightMeter;
 OneWire           oneWireBus(DS18B20_PIN);
 DallasTemperature ds18b20(&oneWireBus);
 AsyncWebServer    server(80);
+DNSServer         captiveDns;
 AsyncWebSocket    ws("/ws");
 Preferences       prefs;
 
@@ -399,6 +401,7 @@ static const char* const MONTH_FULL[] = { "","January","February","March","April
 // ═══════════════════════════════════════════════════════════════════════════════
 void sensorTask(void*); void displayTask(void*); void wifiTask(void*); void systemHealthTask(void*);
 void setupWebServer();
+void startCaptiveDns();
 void showSplash(const char* l1, const char* l2 = "");
 void bootProgressStep(const char* label, uint8_t pct);
 void showBootSequence();
@@ -762,6 +765,9 @@ void hardResetWifi() {
 
   strncpy(apIpStr, WiFi.softAPIP().toString().c_str(), sizeof(apIpStr) - 1);
   apIpStr[sizeof(apIpStr) - 1] = '\0';
+
+  // Recreate captive DNS after a Wi-Fi driver reset.
+  startCaptiveDns();
 
   if (cfg.wifiSsid[0] != '\0') {
     WiFi.begin(cfg.wifiSsid, cfg.wifiPass);
@@ -3208,6 +3214,16 @@ bool checkApiKey(AsyncWebServerRequest* req) {
 // ═══════════════════════════════════════════════════════════════════════════════
 //   WEB SERVER
 // ═══════════════════════════════════════════════════════════════════════════════
+void startCaptiveDns() {
+  // Captive portal DNS: every hostname resolves to the ESP32 AP address.
+  // This is NOT a WiFi configuration portal; it only brings the local
+  // dashboard to the browser after joining the Weather Station AP.
+  IPAddress apIP = WiFi.softAPIP();
+  captiveDns.stop();
+  captiveDns.start(53, "*", apIP);
+  Serial.printf("[DNS] Captive dashboard DNS started on %s:53\n", apIP.toString().c_str());
+}
+
 void setupWebServer() {
   // V9 NEW: security response headers applied to every response automatically
   // (equivalent to calling applySecurityHeaders() on each handler manually).
@@ -3322,10 +3338,13 @@ void setupWebServer() {
   server.on("/library/test/success.html", HTTP_GET, redirectToDashboard);   // Android variants
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
+    // The embedded dashboard is authoritative. A stale LittleFS /index.html
+    // must never replace it after a firmware-only flash.
     if (!checkBasicAuth(req)) return;
-    // LittleFS /index.html takes precedence (dev override); fallback to PROGMEM build
-    if (LittleFS.exists("/index.html")) req->send(LittleFS,"/index.html","text/html");
-    else req->send_P(200,"text/html",DASHBOARD_HTML);
+    AsyncWebServerResponse* resp = req->beginResponse_P(200, "text/html", DASHBOARD_HTML);
+    resp->addHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    resp->addHeader("Pragma", "no-cache");
+    req->send(resp);
   });
 
   server.on("/api/data", HTTP_GET, [](AsyncWebServerRequest* req) {
@@ -3781,6 +3800,9 @@ void setup() {
   strncpy(apIpStr, WiFi.softAPIP().toString().c_str(), sizeof(apIpStr) - 1);
   apIpStr[sizeof(apIpStr) - 1] = '\0';
 
+  // Start captive DNS immediately after the AP gets its IP.
+  startCaptiveDns();
+
   Serial.printf("[AP] Weather Station AP started: %s  IP: %s\n",
                 AP_SSID, apIpStr);
 
@@ -3853,5 +3875,8 @@ void setup() {
 
 void loop() {
   esp_task_wdt_reset();  // V8 FIX: setup()/loop() task now registered with WDT — must feed it here too
-  vTaskDelay(pdMS_TO_TICKS(1000));
+
+  // Keep captive DNS responsive without blocking the rest of the firmware.
+  captiveDns.processNextRequest();
+  vTaskDelay(pdMS_TO_TICKS(10));
 }
