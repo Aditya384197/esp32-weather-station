@@ -428,7 +428,7 @@ void formatUtcOffset(long offsetSec, char* out, size_t outLen);
 float medianOf(float* arr, uint8_t n);
 float movingAverage(float* ring, uint8_t cap, bool full, uint8_t idx);
 uint8_t computeConfidence(uint16_t retries, uint16_t consecFails, bool rejectedSpike, bool gotFreshSample);
-SensorHealth healthFromFails(uint16_t consecFails);
+SensorHealth healthFromFails(uint16_t consecFails, bool hasLastGood, bool gotFreshSample);
 void safeRestart(const char* reason);
 void wsTextAll(const String& msg);   // V7: mutex-wrapped ws.textAll()
 
@@ -822,8 +822,6 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
 #scan{position:fixed;left:0;right:0;height:2px;z-index:4;pointer-events:none;opacity:.6;
   background:linear-gradient(transparent,rgba(0,255,170,.5),transparent);animation:sc 11s linear infinite}
 @keyframes sc{from{top:-2px}to{top:100vh}}
-#vig{position:fixed;inset:0;z-index:3;pointer-events:none;
-  background:radial-gradient(ellipse at 50% 50%,transparent 42%,rgba(0,0,0,.72) 100%)}
 .shell{position:relative;z-index:10;display:grid;
   grid-template-columns:206px 1fr 248px;
   grid-template-rows:54px 1fr 30px;min-height:100vh}
@@ -1164,37 +1162,25 @@ input::placeholder{color:var(--dim)}
   .tb-stats .tbs:nth-child(n+3){display:none}
 }
 @media(max-width:420px){
-  /* MOBILE GRID FIX:
-     The previous layout changed the shell to `0 1fr` while hiding the
-     sidebar. CSS Grid then auto-placed <main class="center"> into the
-     zero-width first column and the dashboard became almost invisible.
-     Keep the mobile layout as one real column instead. */
   .shell{
     grid-template-columns:1fr;
     grid-template-rows:54px minmax(0,1fr) auto 30px;
     min-height:100vh;
   }
   .topbar{grid-column:1}
-  .sidebar{display:none}
-  .center{
-    grid-column:1;
-    grid-row:2;
-    min-width:0;
-    width:100%;
+  .sidebar{
+    display:none;
+    position:fixed;left:0;top:54px;bottom:30px;width:220px;
+    z-index:250;background:linear-gradient(180deg,rgba(5,16,11,.99),rgba(3,10,7,.99));
+    border-right:1px solid var(--bdr);box-shadow:10px 0 35px rgba(0,0,0,.75);
   }
-  .rpanel{
-    grid-column:1;
-    grid-row:3;
-    width:100%;
-    max-height:none;
-    border-left:none;
-    border-top:1px solid var(--bdr);
-  }
-  .botbar{
-    grid-column:1;
-    grid-row:4;
-    min-width:0;
-  }
+  .sidebar.mob-open{display:flex}
+  .sidebar .sb-item{justify-content:flex-start;padding:10px 14px}
+  .sidebar .sb-item span:not(.ico){display:inline}
+  #mob-menu{display:block !important}
+  .center{grid-column:1;grid-row:2;min-width:0;width:100%}
+  .rpanel{grid-column:1;grid-row:3;width:100%;max-height:none;border-left:none;border-top:1px solid var(--bdr)}
+  .botbar{grid-column:1;grid-row:4;min-width:0}
   .cards-row{grid-template-columns:1fr}
 }
 
@@ -1208,7 +1194,6 @@ input::placeholder{color:var(--dim)}
   border:1px solid rgba(0,212,255,.4);color:var(--c2);font-size:18px;padding:4px 10px;cursor:pointer;border-radius:4px">☰</button>
 <div id="offline-badge" style="display:none;position:fixed;top:68px;left:210px;right:270px;z-index:100;background:rgba(245,158,11,.15);border:1px solid var(--c4);color:var(--c4);font-size:10px;padding:5px 14px;font-weight:700;letter-spacing:1px;text-align:center"></div>
 <div id="scan"></div>
-<div id="vig"></div>
 <div class="shell">
 
 <!-- ═══ TOPBAR ═══ -->
@@ -1222,7 +1207,7 @@ input::placeholder{color:var(--dim)}
     <canvas id="feedCanvas" width="160" height="34"></canvas>
   </div>
   <div class="tb-mid">
-    <div class="sys-online" id="sysTitle">SYSTEM ONLINE</div>
+    <div class="sys-online" id="sysTitle">SYSTEM OFFLINE</div>
     <div class="sys-sub">All Systems Operational</div>
   </div>
   <div class="tb-stats">
@@ -1267,7 +1252,7 @@ input::placeholder{color:var(--dim)}
   </div>
   <div class="sb-devstatus">
     <div class="dlbl">DEVICE STATUS</div>
-    <div class="status-online" id="sb-onl">● ONLINE</div>
+    <div class="status-online" id="sb-onl">● OFFLINE</div>
     <div class="sb-ip" id="sb-ip">---.---.---.---</div>
     <div class="sb-rssi" id="sb-rssi">-- dBm</div>
   </div>
@@ -1382,10 +1367,10 @@ input::placeholder{color:var(--dim)}
     <!-- Sensor Health -->
     <div class="panel">
       <div class="ph">SENSOR HEALTH</div>
-      <div class="sh-row"><span class="sh-ico">🌡️</span><span class="sh-name">DHT22</span><div class="sh-dot ONLINE" id="sd-dht"></div><span class="sh-status ONLINE" id="ss-dht">ONLINE</span><div class="sh-conf"><div class="cl">Confidence</div><div class="cv" id="sc-dht">--%</div></div></div>
-      <div class="sh-row"><span class="sh-ico">📊</span><span class="sh-name">BME280</span><div class="sh-dot ONLINE" id="sd-bme"></div><span class="sh-status ONLINE" id="ss-bme">ONLINE</span><div class="sh-conf"><div class="cl">Confidence</div><div class="cv" id="sc-bme">--%</div></div></div>
-      <div class="sh-row"><span class="sh-ico">☀️</span><span class="sh-name">BH1750</span><div class="sh-dot ONLINE" id="sd-bh"></div><span class="sh-status ONLINE" id="ss-bh">ONLINE</span><div class="sh-conf"><div class="cl">Confidence</div><div class="cv" id="sc-bh">--%</div></div></div>
-      <div class="sh-row"><span class="sh-ico">🌡️</span><span class="sh-name">DS18B20</span><div class="sh-dot ONLINE" id="sd-ds"></div><span class="sh-status ONLINE" id="ss-ds">ONLINE</span><div class="sh-conf"><div class="cl">Confidence</div><div class="cv" id="sc-ds">--%</div></div></div>
+      <div class="sh-row"><span class="sh-ico">🌡️</span><span class="sh-name">DHT22</span><div class="sh-dot ERROR" id="sd-dht"></div><span class="sh-status ERROR" id="ss-dht">OFFLINE</span><div class="sh-conf"><div class="cl">Confidence</div><div class="cv" id="sc-dht">--%</div></div></div>
+      <div class="sh-row"><span class="sh-ico">📊</span><span class="sh-name">BME280</span><div class="sh-dot ERROR" id="sd-bme"></div><span class="sh-status ERROR" id="ss-bme">OFFLINE</span><div class="sh-conf"><div class="cl">Confidence</div><div class="cv" id="sc-bme">--%</div></div></div>
+      <div class="sh-row"><span class="sh-ico">☀️</span><span class="sh-name">BH1750</span><div class="sh-dot ERROR" id="sd-bh"></div><span class="sh-status ERROR" id="ss-bh">OFFLINE</span><div class="sh-conf"><div class="cl">Confidence</div><div class="cv" id="sc-bh">--%</div></div></div>
+      <div class="sh-row"><span class="sh-ico">🌡️</span><span class="sh-name">DS18B20</span><div class="sh-dot ERROR" id="sd-ds"></div><span class="sh-status ERROR" id="ss-ds">OFFLINE</span><div class="sh-conf"><div class="cl">Confidence</div><div class="cv" id="sc-ds">--%</div></div></div>
     </div>
     <!-- Weather Overview -->
     <div class="panel">
@@ -1573,10 +1558,10 @@ input::placeholder{color:var(--dim)}
       <div class="smsg" id="cfg-msg"></div>
     </div>
     <div>
-      <div class="sect">WIFI CONFIGURATION</div>
-      <div class="fld"><label>HIDDEN SSID</label><input type="text" id="cfg-ssid" placeholder="Hidden WiFi Network Name"></div>
+      <div class="sect">INTERNET / WIFI CONNECTION</div>
+      <div class="fld"><label>WIFI NETWORK SSID</label><input type="text" id="cfg-ssid" placeholder="Your WiFi network name"></div>
       <div class="fld"><label>WIFI PASSWORD</label><input type="password" id="cfg-pass" placeholder="WiFi Password"></div>
-      <button class="fbtn" onclick="saveWifi()">CONNECT TO HIDDEN WIFI</button>
+      <button class="fbtn" onclick="saveWifi()">CONNECT TO INTERNET WIFI</button>
       <div class="smsg" id="wifi-msg"></div>
     </div>
   </div>
@@ -1705,20 +1690,33 @@ function nav(el, pgId) {
   var pg = document.getElementById('pg-' + pgId);
   if (pg) pg.classList.add('on');
   if (pgId === 'sysinfo') loadSys();
+  var sb=document.querySelector('.sidebar');
+  if (sb && window.innerWidth<=420) sb.classList.remove('mob-open');
 }
 
-// ── FEED WAVEFORM ─────────────────────────────────────────────────────
+// ── LIVE DATA FEED WAVEFORM ───────────────────────────────────────────
+// This graph uses only real sensor samples. No Math.random() synthetic data.
+var feedData=[];
+function pushFeedSample(v){
+  if(v===undefined||v===null||isNaN(+v)) return;
+  feedData.push(+v); if(feedData.length>80) feedData.shift();
+}
 (function(){
-  var c = document.getElementById('feedCanvas'), ctx = c.getContext('2d');
-  var data = Array(80).fill(0).map(() => 17 + Math.random()*10);
-  function draw() {
+  var c=document.getElementById('feedCanvas'); if(!c) return;
+  var ctx=c.getContext('2d');
+  function draw(){
     ctx.clearRect(0,0,c.width,c.height);
-    ctx.beginPath(); ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 1.5;
-    ctx.shadowBlur = 5; ctx.shadowColor = '#00ff88';
-    data.forEach((v,i) => { var x=i*(c.width/(data.length-1)); if(!i) ctx.moveTo(x,v); else ctx.lineTo(x,v); });
-    ctx.stroke(); ctx.shadowBlur = 0;
-    data.shift(); data.push(12 + Math.random()*20);
-    setTimeout(draw, 80);
+    if(feedData.length>1){
+      var mn=Math.min.apply(null,feedData), mx=Math.max.apply(null,feedData);
+      if(mn===mx){mn-=1;mx+=1;}
+      ctx.beginPath();ctx.strokeStyle='#00ff88';ctx.lineWidth=1.5;ctx.shadowBlur=5;ctx.shadowColor='#00ff88';
+      feedData.forEach(function(v,i){
+        var x=i*(c.width/(feedData.length-1)), y=c.height-2-((v-mn)/(mx-mn))*(c.height-4);
+        if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+      });
+      ctx.stroke();ctx.shadowBlur=0;
+    }
+    requestAnimationFrame(draw);
   }
   draw();
 })();
@@ -1916,21 +1914,23 @@ function conn() {
     var d; try{d=JSON.parse(e.data);}catch(ex){return;}
     if (d.type==='event'){ addEvt(d.level,d.msg,d.ms); return; }
 
+    pushFeedSample(d.temp);
+
     // Sensor cards
     flash('v-temp', fmt(d.temp,1));
     flash('v-hum', fmt(d.humidity,0));
     flash('v-pres', fmt(d.pressure,1));
-    flash('v-lux', d.lux!==undefined?(d.lux>=1000?(d.lux/1000).toFixed(1)+'k':Math.round(d.lux)):'--');
+    flash('v-lux', d.lux==null?'--':(d.lux>=1000?(d.lux/1000).toFixed(1)+'k':Math.round(d.lux)));
     flash('v-ds', fmt(d.ds18_temp,1));
-    flash('v-rain', Math.round(d.rain_prob||0));
+    flash('v-rain', d.rain_prob==null?'--':Math.round(d.rain_prob));
     setText('v-hi', fmt(d.heat_index,1));
     setText('v-dew', fmt(d.dew_point,1));
     setText('v-alt', fmt(d.altitude,0));
-    setText('v-luxl', lxLvl(d.lux||0));
-    setText('v-rainl', rainLvl(d.rain_prob||0));
+    setText('v-luxl', d.lux==null?'--':lxLvl(d.lux));
+    setText('v-rainl', d.rain_prob==null?'--':rainLvl(d.rain_prob));
     setText('v-dscnt', d.ds18_count||'--');
     var tEl=document.getElementById('v-trend');
-    if(tEl){var tr=d.pressure_trend||0;tEl.textContent=tr>0.1?'▲':tr<-0.1?'▼':'~';tEl.style.color=tr>0.1?'var(--c1)':tr<-0.1?'var(--c5)':'var(--c4)';}
+    if(tEl){var tr=d.pressure_trend; tEl.textContent=tr==null?'--':(tr>0.1?'▲':tr<-0.1?'▼':'~'); tEl.style.color=tr==null?'var(--dim)':(tr>0.1?'var(--c1)':tr<-0.1?'var(--c5)':'var(--c4)');}
 
     // Badges & health
     setBadge('bd-dht',d.dht_ok,d.dht_health); setBadge('bd-bme',d.bme_ok,d.bme_health);
@@ -1947,9 +1947,9 @@ function conn() {
     setText('gc-t', fmt(d.temp,1)+'°C'); setText('gc-h', fmt(d.humidity,0)+'%'); setText('gc-p', fmt(d.pressure,1)+' hPa');
 
     // Weather overview
-    setText('wx-ico', wxIco(d.weather));
-    setText('wx-cond', d.weather||'--');
-    setText('wx-sub', 'Humidity '+fmt(d.humidity,0)+'%, Dew Point '+fmt(d.dew_point,1)+'°C');
+    setText('wx-ico', d.weather==null?'--':wxIco(d.weather));
+    setText('wx-cond', d.weather==null?'--':d.weather);
+    setText('wx-sub', d.dht_ok ? ('Humidity '+fmt(d.humidity,0)+'%, Dew Point '+fmt(d.dew_point,1)+'°C') : 'No local sensor data');
     setText('wx-t', fmt(d.temp,1)+'°C'); setText('wx-h', fmt(d.humidity,0)+'%');
     setText('wx-w', '--'); setText('wx-v', '--');
 
@@ -1968,8 +1968,11 @@ function conn() {
     // Topbar
     var fmtUptime = fmtUp(d.uptime_s||0);
     setText('t-up', fmtUptime); setText('sup', fmtUptime);
-    setText('sb-ip', d.ip||'--'); setText('sb-rssi', (d.rssi||'--')+' dBm');
-    setText('ts-heap', fhKb+' KB'); setText('ts-rssi', (d.rssi||'--')+' dBm');
+    setText('sb-ip', d.wifi_connected ? (d.sta_ip||d.ip||'--') : (d.ap_ip||d.ip||'--'));
+    setText('sb-rssi', d.wifi_connected ? ((d.rssi||'--')+' dBm') : '-- dBm');
+    setText('ts-heap', fhKb+' KB'); setText('ts-rssi', d.wifi_connected ? ((d.rssi||'--')+' dBm') : '-- dBm');
+    setText('sysTitle', d.wifi_connected?'SYSTEM ONLINE':'SYSTEM OFFLINE');
+    var sysSub=document.querySelector('.sys-sub'); if(sysSub) sysSub.textContent=d.wifi_connected?'Internet/WiFi connected':'AP MODE — Internet disconnected';
     setText('sh', fhKb+' KB'); setText('sf', fsPct+'%');
     setText('sr', (d.rssi||'--')+' dBm'); setText('si', d.ip||'--');
     setText('ss', d.snapshot_seq||'--');
@@ -1987,7 +1990,7 @@ function conn() {
     setText('ld-p',fmt(d.pressure,1)+' hPa'); setText('ld-a',fmt(d.altitude,0)+' m');
     setText('ld-tr',(d.pressure_trend>0?'+':'')+fmt(d.pressure_trend,2)+' hPa/m');
     setText('ld-l',fmt(d.lux,0)+' lx'); setText('ld-d1',fmt(d.ds18_temp,1)+'°C');
-    setText('ld-d2',d.ds18_temp_2?fmt(d.ds18_temp_2,1)+'°C':'--');
+    setText('ld-d2',d.ds18_temp_2==null?'--':fmt(d.ds18_temp_2,1)+'°C');
     setText('ld-mm',fmt(d.ds18_min,1)+'/'+fmt(d.ds18_max,1));
     setText('ld-r',fmt(d.rain_prob,0)+'%'); setText('ld-w',d.weather||'--');
     if(d.uptime_s!==undefined) setText('ld-up',fmtUp(d.uptime_s));
@@ -2063,7 +2066,7 @@ function saveCfg(){
   apiFetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json()).then(j=>{var m=document.getElementById('cfg-msg');m.textContent=j.ok?'Config saved.':j.error||'Error.';m.className=j.ok?'smsg ok':'smsg er';}).catch(()=>{});
 }
 function saveWifi(){
-  var b={wifi_ssid:document.getElementById('cfg-ssid').value,wifi_pass:document.getElementById('cfg-pass').value,hidden:true};
+  var b={wifi_ssid:document.getElementById('cfg-ssid').value.trim(),wifi_pass:document.getElementById('cfg-pass').value};
   apiFetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json()).then(j=>{var m=document.getElementById('wifi-msg');m.textContent=j.msg||'Done.';m.className='smsg ok';}).catch(()=>{});
 }
 function loadSys(){
@@ -2160,14 +2163,15 @@ void saveConfig() {
 //   HIDDEN WIFI
 // ═══════════════════════════════════════════════════════════════════════════════
 bool connectHiddenWifi(const char* ssid, const char* password) {
-  Serial.printf("[WiFi] Connecting to hidden SSID: %s\n", ssid);
+  Serial.printf("[WiFi] Connecting to WiFi SSID: %s\n", ssid);
 
   // Do not power Wi-Fi off here: the local dashboard AP must remain available
   // while the STA interface attempts to reach the configured router.
   WiFi.mode(WIFI_AP_STA);
   WiFi.disconnect(false);
   delay(100);
-  WiFi.begin(ssid, password, 0, nullptr, true);
+  // Normal STA connection supports both visible and hidden home-router SSIDs.
+  WiFi.begin(ssid, password);
 
   uint8_t tries = 0;
   while (WiFi.status() != WL_CONNECTED && tries < 30) {
@@ -2177,11 +2181,15 @@ bool connectHiddenWifi(const char* ssid, const char* password) {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\n[WiFi] Hidden SSID OK: %s\n", WiFi.localIP().toString().c_str());
+    offlineMode = false;
+    Serial.printf("\n[WiFi] WiFi connected: %s\n", WiFi.localIP().toString().c_str());
+    logEvent(EVT_INFO,"WiFi connected: %s",WiFi.localIP().toString().c_str());
     return true;
   }
 
-  Serial.println(F("\n[WiFi] Hidden SSID FAILED."));
+  offlineMode = true;
+  Serial.println(F("\n[WiFi] WiFi connection failed."));
+  logEvent(EVT_WARN,"WiFi connection failed; AP dashboard remains available");
   return false;
 }
 
@@ -2318,14 +2326,15 @@ float movingAverage(float* ring, uint8_t cap, bool full, uint8_t idx) {
   float sum=0; for (uint8_t i=0;i<n;i++) sum+=ring[i]; return sum/(float)n;
 }
 uint8_t computeConfidence(uint16_t retriesThisCycle, uint16_t consecFails, bool rejectedSpike, bool gotFreshSample) {
-  if (!gotFreshSample) return consecFails>=SENSOR_ERROR_FAILS?0:40;
+  if (!gotFreshSample) return 0;
   int score=100; score-=retriesThisCycle*8; score-=consecFails*5;
   if (rejectedSpike) score-=15; return (uint8_t)constrain(score,0,100);
 }
-SensorHealth healthFromFails(uint16_t consecFails) {
+SensorHealth healthFromFails(uint16_t consecFails, bool hasLastGood, bool gotFreshSample) {
+  if (gotFreshSample) return HEALTH_ONLINE;
+  if (!hasLastGood) return HEALTH_ERROR;
   if (consecFails>=SENSOR_ERROR_FAILS) return HEALTH_ERROR;
-  if (consecFails>=SENSOR_WARN_FAILS)  return HEALTH_WARNING;
-  return HEALTH_ONLINE;
+  return HEALTH_WARNING;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2872,8 +2881,10 @@ void sensorTask(void* pvParam) {
     sd.bmeConfidence=computeConfidence(bmeRetries,bmeConsecFails,false,bmeValid);
     sd.bhConfidence =computeConfidence(bhRetries, bhConsecFails, false,bh1Valid);
     sd.dsConfidence =computeConfidence(dsRetries, dsConsecFails, false,dsValid);
-    sd.dhtHealth=healthFromFails(dhtConsecFails); sd.bmeHealth=healthFromFails(bmeConsecFails);
-    sd.bhHealth =healthFromFails(bhConsecFails);  sd.dsHealth =healthFromFails(dsConsecFails);
+    sd.dhtHealth=healthFromFails(dhtConsecFails,dhtHasLastGood,dhtValid);
+    sd.bmeHealth=healthFromFails(bmeConsecFails,bmeHasLastGood,bmeValid);
+    sd.bhHealth =healthFromFails(bhConsecFails,bhHasLastGood,bh1Valid);
+    sd.dsHealth =healthFromFails(dsConsecFails,dsHasLastGood,dsValid);
     sd.dhtRetries=dhtRetries; sd.bmeRetries=bmeRetries; sd.bhRetries=bhRetries; sd.dsRetries=dsRetries;
     if (!dhtValid) sd.dhtErrors++; if (!bmeValid) sd.bmeErrors++; if (!bh1Valid) sd.bhErrors++; if (!dsValid) sd.dsErrors++;
     sd.snapshotSeq++; sd.snapshotMs=millis();
@@ -2882,7 +2893,9 @@ void sensorTask(void* pvParam) {
     uint32_t nowMs=millis();
     if (nowMs-lastLogMs>=LOG_INTERVAL_MS) {
       lastLogMs=nowMs; time_t epoch; time(&epoch);
-      LogRecord rec={epoch,dhtValid?finalDhtT:0,dhtValid?finalDhtH:0,bmeValid?bP:0,bh1Valid?lux:0,dsValid?ds0:0};
+      LogRecord rec={epoch,
+        dhtValid?finalDhtT:NAN, dhtValid?finalDhtH:NAN,
+        bmeValid?bP:NAN, bh1Valid?lux:NAN, dsValid?ds0:NAN};
       logRing[logHead]=rec; logHead=(logHead+1)%MAX_LOG_RECORDS; if (logCount<MAX_LOG_RECORDS) logCount++;
       appendLogRecord(rec);
     }
@@ -3066,19 +3079,19 @@ void broadcastWsUpdate() {
   char ipBuf[16]; strncpy(ipBuf,WiFi.localIP().toString().c_str(),sizeof(ipBuf)-1); ipBuf[15]=0;
   size_t fsTotal=LittleFS.totalBytes(),fsUsed=LittleFS.usedBytes();
   StaticJsonDocument<1280> doc;
-  doc["temp"]      =s.dhtOK?roundf(s.dhtTemp*10)/10.0f:0.0f;
-  doc["humidity"]  =s.dhtOK?roundf(s.dhtHumidity*10)/10.0f:0.0f;
-  doc["pressure"]  =s.bmeOK?roundf(s.bmePressure*10)/10.0f:0.0f;
-  doc["altitude"]  =s.bmeOK?roundf(s.altitudeM):0;
-  doc["heat_index"]=s.dhtOK?roundf(s.heatIndex*10)/10.0f:0.0f;
-  doc["dew_point"] =s.dhtOK?roundf(s.dewPoint*10)/10.0f:0.0f;
-  doc["lux"]       =s.bh1750OK?s.lux:0.0f;
-  doc["ds18_temp"] =s.ds18OK?roundf(s.ds18Temp[0]*10)/10.0f:0.0f;
+  doc["temp"]      =s.dhtOK?roundf(s.dhtTemp*10)/10.0f:NAN;
+  doc["humidity"]  =s.dhtOK?roundf(s.dhtHumidity*10)/10.0f:NAN;
+  doc["pressure"]  =s.bmeOK?roundf(s.bmePressure*10)/10.0f:NAN;
+  doc["altitude"]  =s.bmeOK?roundf(s.altitudeM):NAN;
+  doc["heat_index"]=s.dhtOK?roundf(s.heatIndex*10)/10.0f:NAN;
+  doc["dew_point"] =s.dhtOK?roundf(s.dewPoint*10)/10.0f:NAN;
+  doc["lux"]       =s.bh1750OK?s.lux:NAN;
+  doc["ds18_temp"] =s.ds18OK?roundf(s.ds18Temp[0]*10)/10.0f:NAN;
   doc["ds18_count"]=(uint8_t)s.ds18Count;
-  doc["ds18_min"]  =s.ds18Min; doc["ds18_max"]=s.ds18Max;
-  doc["pressure_trend"]=s.bmeOK?roundf(s.pressureTrend*100)/100.0f:0.0f;
-  doc["rain_prob"] =(s.dhtOK&&s.bmeOK)?s.rainProbPct:0.0f;
-  doc["weather"]   =(s.dhtOK&&s.bmeOK)?weatherClassification(s.rainProbPct):"Sensor Error";
+  doc["ds18_min"]  =s.ds18OK?s.ds18Min:NAN; doc["ds18_max"]=s.ds18OK?s.ds18Max:NAN;
+  doc["pressure_trend"]=s.bmeOK?roundf(s.pressureTrend*100)/100.0f:NAN;
+  doc["rain_prob"] =(s.dhtOK&&s.bmeOK)?s.rainProbPct:NAN;
+  doc["weather"]   =(s.dhtOK&&s.bmeOK)?weatherClassification(s.rainProbPct):"";
   doc["dht_ok"]=s.dhtOK; doc["bme_ok"]=s.bmeOK; doc["bh_ok"]=s.bh1750OK; doc["ds_ok"]=s.ds18OK;
   doc["rssi"]=WiFi.RSSI(); doc["ip"]=ipBuf;
   doc["time"]=tsBuf; doc["free_heap"]=esp_get_free_heap_size(); doc["uptime_s"]=millis()/1000UL;
@@ -3095,6 +3108,8 @@ void broadcastWsUpdate() {
   doc["heap_frag_pct"]=(fH>0)?(uint8_t)(100UL-(100UL*lB)/fH):0;
   doc["firmware"]=FIRMWARE_VERSION;
   doc["offline_mode"]=(bool)offlineMode;
+  doc["wifi_connected"]=(WiFi.status()==WL_CONNECTED);
+  doc["sta_ip"]=WiFi.localIP().toString();
   doc["ap_ip"]=apIpStr;
   // V8 NEW: surface error-handling/recovery state to the dashboard
   doc["safe_mode"]=safeModeActive;
@@ -3384,16 +3399,16 @@ void setupWebServer() {
     char tsBuf[12]; snprintf(tsBuf,sizeof(tsBuf),"%02d:%02d:%02d",ti.tm_hour,ti.tm_min,ti.tm_sec);
     char ipBuf[16]; strncpy(ipBuf,WiFi.localIP().toString().c_str(),sizeof(ipBuf)-1); ipBuf[15]=0;
     StaticJsonDocument<1024> doc;
-    doc["temp"]=s.dhtOK?roundf(s.dhtTemp*10)/10.0f:0.0f; doc["humidity"]=s.dhtOK?roundf(s.dhtHumidity*10)/10.0f:0.0f;
-    doc["pressure"]=s.bmeOK?roundf(s.bmePressure*10)/10.0f:0.0f; doc["altitude"]=s.bmeOK?roundf(s.altitudeM):0;
-    doc["heat_index"]=s.dhtOK?roundf(s.heatIndex*10)/10.0f:0.0f; doc["dew_point"]=s.dhtOK?roundf(s.dewPoint*10)/10.0f:0.0f;
-    doc["lux"]=s.bh1750OK?s.lux:0.0f; doc["ds18_temp"]=s.ds18OK?roundf(s.ds18Temp[0]*10)/10.0f:0.0f;
-    doc["ds18_temp_2"]=(s.ds18OK&&s.ds18Count>1)?roundf(s.ds18Temp[1]*10)/10.0f:0.0f;
+    doc["temp"]=s.dhtOK?roundf(s.dhtTemp*10)/10.0f:NAN; doc["humidity"]=s.dhtOK?roundf(s.dhtHumidity*10)/10.0f:NAN;
+    doc["pressure"]=s.bmeOK?roundf(s.bmePressure*10)/10.0f:NAN; doc["altitude"]=s.bmeOK?roundf(s.altitudeM):NAN;
+    doc["heat_index"]=s.dhtOK?roundf(s.heatIndex*10)/10.0f:NAN; doc["dew_point"]=s.dhtOK?roundf(s.dewPoint*10)/10.0f:NAN;
+    doc["lux"]=s.bh1750OK?s.lux:NAN; doc["ds18_temp"]=s.ds18OK?roundf(s.ds18Temp[0]*10)/10.0f:NAN;
+    doc["ds18_temp_2"]=(s.ds18OK&&s.ds18Count>1)?roundf(s.ds18Temp[1]*10)/10.0f:NAN;
     doc["ds18_count"]=(uint8_t)s.ds18Count;
-    doc["ds18_min"]=s.ds18Min; doc["ds18_max"]=s.ds18Max;
-    doc["pressure_trend"]=s.bmeOK?roundf(s.pressureTrend*100)/100.0f:0.0f;
-    doc["rain_prob"]=(s.dhtOK&&s.bmeOK)?s.rainProbPct:0.0f;
-    doc["weather"]=(s.dhtOK&&s.bmeOK)?weatherClassification(s.rainProbPct):"Sensor Error";
+    doc["ds18_min"]=s.ds18OK?s.ds18Min:NAN; doc["ds18_max"]=s.ds18OK?s.ds18Max:NAN;
+    doc["pressure_trend"]=s.bmeOK?roundf(s.pressureTrend*100)/100.0f:NAN;
+    doc["rain_prob"]=(s.dhtOK&&s.bmeOK)?s.rainProbPct:NAN;
+    doc["weather"]=(s.dhtOK&&s.bmeOK)?weatherClassification(s.rainProbPct):"";
     doc["dht_ok"]=s.dhtOK; doc["bme_ok"]=s.bmeOK; doc["bh_ok"]=s.bh1750OK; doc["ds_ok"]=s.ds18OK;
     doc["rssi"]=WiFi.RSSI(); doc["ip"]=ipBuf; doc["time"]=tsBuf; doc["free_heap"]=esp_get_free_heap_size();
     doc["uptime_s"]=millis()/1000UL; doc["fs_used"]=(uint32_t)LittleFS.usedBytes(); doc["fs_total"]=(uint32_t)LittleFS.totalBytes();
@@ -3466,12 +3481,11 @@ void setupWebServer() {
       if (doc.containsKey("wifi_pass")) { strlcpy(cfg.wifiPass,doc["wifi_pass"]|"",sizeof(cfg.wifiPass)); changed=true; }
       if (changed) {
         saveConfig();
-        bool hidden=doc["hidden"]|false;
-        if (hidden&&cfg.wifiSsid[0]!='\0') {
+        if (cfg.wifiSsid[0]!='\0') {
           struct HWP { char ssid[64]; char pass[64]; };
           HWP* hp=new HWP();
           strlcpy(hp->ssid,cfg.wifiSsid,sizeof(hp->ssid)); strlcpy(hp->pass,cfg.wifiPass,sizeof(hp->pass));
-          if (xTaskCreate([](void* arg){ HWP* p=(HWP*)arg; connectHiddenWifi(p->ssid,p->pass); delete p; vTaskDelete(NULL); },"hiddenWifi",4096,hp,1,NULL)!=pdPASS) { delete hp; }
+          if (xTaskCreate([](void* arg){ HWP* p=(HWP*)arg; connectHiddenWifi(p->ssid,p->pass); delete p; vTaskDelete(NULL); },"wifiConnect",4096,hp,1,NULL)!=pdPASS) { delete hp; }
           req->send(200,"application/json","{\"ok\":true,\"msg\":\"Config saved. Connecting to hidden WiFi.\"}");
           return;
         }
@@ -3884,12 +3898,15 @@ void setup() {
 
   if (!safeModeActive) {
     float it=dht.readTemperature(),ih=dht.readHumidity();
-    if (!isnan(it)&&!isnan(ih)) { sd.dhtTemp=it; sd.dhtHumidity=ih; sd.heatIndex=computeHeatIndex(it,ih); sd.dewPoint=computeDewPoint(it,ih); sd.dhtOK=true; }
+    if (!isnan(it)&&!isnan(ih)) { dhtHasLastGood=true; sd.dhtTemp=it; sd.dhtHumidity=ih; sd.heatIndex=computeHeatIndex(it,ih); sd.dewPoint=computeDewPoint(it,ih); sd.dhtOK=true; }
     bme.takeForcedMeasurement(); float ibP=bme.readPressure()/100.0f;
-    if (ibP>850.0f&&ibP<1100.0f) { sd.bmeTemp=bme.readTemperature(); sd.bmePressure=ibP; sd.bmeHumidity=bme.readHumidity(); sd.altitudeM=bme.readAltitude(SEA_LEVEL_HPA); sd.bmeOK=true; pressBuf[0]=ibP; pressBufIdx=1; }
-    float ilux=lightMeter.readLightLevel(); if (ilux>=0.0f) { sd.lux=ilux; sd.bh1750OK=true; }
+    if (ibP>850.0f&&ibP<1100.0f) { bmeHasLastGood=true; sd.bmeTemp=bme.readTemperature(); sd.bmePressure=ibP; sd.bmeHumidity=bme.readHumidity(); sd.altitudeM=bme.readAltitude(SEA_LEVEL_HPA); sd.bmeOK=true; pressBuf[0]=ibP; pressBufIdx=1; }
+    float ilux=lightMeter.readLightLevel(); if (ilux>=0.0f&&ilux<200000.0f) { bhHasLastGood=true; sd.lux=ilux; sd.bh1750OK=true; }
     ds18b20.requestTemperatures(); float ids=ds18b20.getTempCByIndex(0);
-    if (ids>-55.0f&&ids<125.0f) { sd.ds18Temp[0]=ids; sd.ds18Min=ids; sd.ds18Max=ids; sd.ds18MinMaxInit=true; sd.ds18Count=ds18b20.getDeviceCount(); sd.ds18OK=true; }
+    if (ids!=DEVICE_DISCONNECTED_C&&ids>-55.0f&&ids<125.0f) { dsHasLastGood=true; sd.ds18Temp[0]=ids; sd.ds18Min=ids; sd.ds18Max=ids; sd.ds18MinMaxInit=true; sd.ds18Count=ds18b20.getDeviceCount(); sd.ds18OK=true; }
+    sd.dhtHealth=sd.dhtOK?HEALTH_ONLINE:HEALTH_ERROR; sd.bmeHealth=sd.bmeOK?HEALTH_ONLINE:HEALTH_ERROR;
+    sd.bhHealth=sd.bh1750OK?HEALTH_ONLINE:HEALTH_ERROR; sd.dsHealth=sd.ds18OK?HEALTH_ONLINE:HEALTH_ERROR;
+    sd.dhtConfidence=sd.dhtOK?100:0; sd.bmeConfidence=sd.bmeOK?100:0; sd.bhConfidence=sd.bh1750OK?100:0; sd.dsConfidence=sd.ds18OK?100:0;
   }
 
   BaseType_t ok;
