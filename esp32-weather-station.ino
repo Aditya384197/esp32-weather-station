@@ -20,7 +20,6 @@
  * ║  Update method: USB/Serial only, via Arduino IDE / ArduinoDroid.       ║
  * ║                                                                        ║
  * ║  REQUIRED LIBRARIES (install via Library Manager)                      ║
- * ║  • WiFiManager          by tzapu         v2.0.17+  (Core 3.x needed) ║
  * ║  • ESPAsyncWebServer    by me-no-dev     latest                       ║
  * ║  • AsyncTCP             by me-no-dev     latest                       ║
  * ║  • ArduinoJson          by bblanchon     v6.x  (v7 also works)       ║
@@ -74,9 +73,6 @@
 
 // ── Libraries ─────────────────────────────────────────────────────────────────
 #include <WiFi.h>
-// NOTE: WiFiManager by tzapu v2.0.17+ required for ESP32 Arduino Core 3.x support.
-//       In ArduinoDroid: Library Manager → search "WiFiManager" → install v2.0.17 or newer.
-#include <WiFiManager.h>
 #include <HTTPClient.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
@@ -750,14 +746,27 @@ void checkTaskHeartbeats() {
 void hardResetWifi() {
   wifiHardResetCount++;
   logEvent(EVT_WARN, "WiFi hard-reset escalation (#%lu)", (unsigned long)wifiHardResetCount);
-  WiFi.disconnect(true);  // Core 3.x: eraseap param removed
+
+  // Keep the local Weather Station AP alive even when the STA interface
+  // needs a full Wi-Fi driver reset.
+  WiFi.disconnect(true);  // Core 3.x: turn the Wi-Fi driver off
   delay(200);
   WiFi.mode(WIFI_OFF);
   delay(300);
-  WiFi.mode(WIFI_STA);
-  delay(100);
-  if (cfg.wifiSsid[0] != '\0') WiFi.begin(cfg.wifiSsid, cfg.wifiPass);
-  else WiFi.begin();
+
+  // The local AP is intentionally persistent so the dashboard remains
+  // reachable even when the router/Internet is unavailable.
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(AP_SSID, cfg.apPass);
+  delay(200);
+
+  strncpy(apIpStr, WiFi.softAPIP().toString().c_str(), sizeof(apIpStr) - 1);
+  apIpStr[sizeof(apIpStr) - 1] = '\0';
+
+  if (cfg.wifiSsid[0] != '\0') {
+    WiFi.begin(cfg.wifiSsid, cfg.wifiPass);
+  }
+
   wifiHardFailStreak = 0;
 }
 
@@ -2116,11 +2125,26 @@ void saveConfig() {
 // ═══════════════════════════════════════════════════════════════════════════════
 bool connectHiddenWifi(const char* ssid, const char* password) {
   Serial.printf("[WiFi] Connecting to hidden SSID: %s\n", ssid);
-  WiFi.disconnect(true); delay(200);
+
+  // Do not power Wi-Fi off here: the local dashboard AP must remain available
+  // while the STA interface attempts to reach the configured router.
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.disconnect(false);
+  delay(100);
   WiFi.begin(ssid, password, 0, nullptr, true);
+
   uint8_t tries = 0;
-  while (WiFi.status() != WL_CONNECTED && tries < 30) { delay(500); Serial.print('.'); tries++; }
-  if (WiFi.status() == WL_CONNECTED) { Serial.printf("\n[WiFi] Hidden SSID OK: %s\n", WiFi.localIP().toString().c_str()); return true; }
+  while (WiFi.status() != WL_CONNECTED && tries < 30) {
+    delay(500);
+    Serial.print('.');
+    tries++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("\n[WiFi] Hidden SSID OK: %s\n", WiFi.localIP().toString().c_str());
+    return true;
+  }
+
   Serial.println(F("\n[WiFi] Hidden SSID FAILED."));
   return false;
 }
@@ -3272,6 +3296,31 @@ void setupWebServer() {
     }
   );
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // CAPTIVE-PORTAL HANDOFF
+  //
+  // Phones/OSes probe well-known URLs immediately after joining an AP.
+  // These requests are redirected to the real Weather Station dashboard,
+  // never to a Wi-Fi configuration page.
+  //
+  // Authentication remains intact: the probe only redirects; the dashboard
+  // still goes through the existing Basic-Auth/session security.
+  // ─────────────────────────────────────────────────────────────────────────
+  auto redirectToDashboard = [](AsyncWebServerRequest* req) {
+    req->redirect("/");
+  };
+
+  server.on("/generate_204", HTTP_GET, redirectToDashboard);              // Android
+  server.on("/gen_204", HTTP_GET, redirectToDashboard);                   // Android
+  server.on("/hotspot-detect.html", HTTP_GET, redirectToDashboard);        // Apple
+  server.on("/connecttest.txt", HTTP_GET, redirectToDashboard);            // Windows
+  server.on("/ncsi.txt", HTTP_GET, redirectToDashboard);                  // Windows
+  server.on("/success.txt", HTTP_GET, redirectToDashboard);                // Generic
+  server.on("/canonical.html", HTTP_GET, redirectToDashboard);             // Generic
+  server.on("/redirect", HTTP_GET, redirectToDashboard);                   // Generic
+  server.on("/fwlink", HTTP_GET, redirectToDashboard);                     // Windows
+  server.on("/library/test/success.html", HTTP_GET, redirectToDashboard);   // Android variants
+
   server.on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
     if (!checkBasicAuth(req)) return;
     // LittleFS /index.html takes precedence (dev override); fallback to PROGMEM build
@@ -3718,30 +3767,48 @@ void setup() {
     logEvent(EVT_WARN, "Security: factory-default credentials still active — change via /api/security/credentials");
   }
 
-  if (oledOK) showSplash("WiFi Setup...",AP_SSID);
-  if (cfg.wifiSsid[0]!='\0') {
-    showSplash("Hidden WiFi...",cfg.wifiSsid);
-    if (!connectHiddenWifi(cfg.wifiSsid,cfg.wifiPass)) { WiFiManager wm; wm.setConfigPortalTimeout(120); wm.autoConnect(AP_SSID); }
-  } else { WiFiManager wm; wm.setConfigPortalTimeout(120); wm.autoConnect(AP_SSID); }
+  // ─────────────────────────────────────────────────────────────────────────
+  // LOCAL AP FIRST — no configuration manager / configuration portal.
+  //
+  // The Weather Station AP is deliberately started on every boot and kept
+  // available even when the ESP32 also connects to a configured router.
+  // This makes the local dashboard reachable immediately.
+  // ─────────────────────────────────────────────────────────────────────────
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(AP_SSID, cfg.apPass);
+  delay(200);
 
-  bool wifiOK=(WiFi.status()==WL_CONNECTED);
+  strncpy(apIpStr, WiFi.softAPIP().toString().c_str(), sizeof(apIpStr) - 1);
+  apIpStr[sizeof(apIpStr) - 1] = '\0';
+
+  Serial.printf("[AP] Weather Station AP started: %s  IP: %s\n",
+                AP_SSID, apIpStr);
+
+  if (oledOK) {
+    char apMsg[20];
+    snprintf(apMsg, sizeof(apMsg), "AP: %s", apIpStr);
+    showSplash("Dashboard AP Ready", apMsg);
+  }
+
+  bool wifiOK = false;
+
+  // A stored Wi-Fi configuration is optional. If present, connect to it
+  // without ever opening a configuration portal. If it fails, the local AP
+  // remains fully usable and the dashboard stays available.
+  if (cfg.wifiSsid[0] != '\0') {
+    showSplash("Connecting WiFi...", cfg.wifiSsid);
+    wifiOK = connectHiddenWifi(cfg.wifiSsid, cfg.wifiPass);
+  }
+
   if (wifiOK) {
-    showSplash("WiFi OK!",WiFi.localIP().toString().c_str());
-    offlineMode=false;
+    showSplash("WiFi OK!", WiFi.localIP().toString().c_str());
+    offlineMode = false;
   } else {
-    // ── OFFLINE FALLBACK: start persistent SoftAP so the dashboard
-    //    is always reachable even with no router. The web server,
-    //    WebSocket, and all local features keep running normally.
-    //    Internet-dependent features (OWM weather, NTP) show
-    //    "Offline" status; everything else works unchanged.
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP(AP_SSID, cfg.apPass);
-    delay(200);
-    offlineMode=true;
-    Serial.printf("[Offline] AP started: %s  IP: %s\n", AP_SSID, WiFi.softAPIP().toString().c_str());
-    strncpy(apIpStr, WiFi.softAPIP().toString().c_str(), sizeof(apIpStr)-1);
-    char apMsg[20]; snprintf(apMsg,sizeof(apMsg),"AP: %s",apIpStr);
-    showSplash("Offline AP Ready", apMsg);
+    // No router / failed router connection is NOT a configuration error.
+    // The local Weather Station dashboard remains the primary interface.
+    offlineMode = true;
+    Serial.printf("[AP] Dashboard available at http://%s/\n", apIpStr);
+    showSplash("Dashboard Ready", apIpStr);
   }
   delay(800);
 
