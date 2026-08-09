@@ -17,24 +17,12 @@ jobs:
 
     steps:
 
-      # ==========================================================
-      # 1. Checkout repository
-      # ==========================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ==========================================================
-      # 2. Install Arduino CLI
-      #
-      # This is the same installation mechanism used by the
-      # previously successful Single_RoomAutomation workflow.
-      # ==========================================================
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v2
 
-      # ==========================================================
-      # 3. Configure Arduino CLI + ESP32 package index
-      # ==========================================================
       - name: Configure Arduino CLI
         run: |
           set -e
@@ -46,11 +34,6 @@ jobs:
 
           arduino-cli core update-index
 
-      # ==========================================================
-      # 4. Install VERIFIED ESP32 Arduino Core
-      #
-      # 3.3.11 was successfully used by your other GitHub project.
-      # ==========================================================
       - name: Install ESP32 Arduino Core 3.3.11
         run: |
           set -e
@@ -64,18 +47,12 @@ jobs:
 
           arduino-cli core list
 
-      # ==========================================================
-      # 5. Update Arduino Library Index
-      # ==========================================================
       - name: Update Arduino library index
         run: |
           set -e
 
           arduino-cli lib update-index
 
-      # ==========================================================
-      # 6. Install Weather Station dependencies
-      # ==========================================================
       - name: Install Weather Station libraries
         run: |
           set -e
@@ -123,9 +100,6 @@ jobs:
 
           arduino-cli lib list
 
-      # ==========================================================
-      # 7. Verify the actual sketch
-      # ==========================================================
       - name: Verify Weather Station sketch
         run: |
           set -e
@@ -134,20 +108,21 @@ jobs:
           echo "REPOSITORY CONTENTS"
           echo "=========================================="
 
-          find . -maxdepth 3 -type f -print | sort
+          find . \
+            -maxdepth 3 \
+            -type f \
+            ! -path "./.git/*" \
+            -print | sort
 
           echo ""
           echo "=========================================="
           echo "CHECKING SKETCH"
           echo "=========================================="
 
-          test -f "ESP32 Weather Station.ino"
+          test -f "esp32-weather-station.ino"
 
-          ls -lh "ESP32 Weather Station.ino"
+          ls -lh "esp32-weather-station.ino"
 
-      # ==========================================================
-      # 8. Compile
-      # ==========================================================
       - name: Compile ESP32 Weather Station
         run: |
           set -e
@@ -161,9 +136,6 @@ jobs:
             --warnings all \
             .
 
-      # ==========================================================
-      # 9. Display build information
-      # ==========================================================
       - name: Inspect build output
         if: always()
         run: |
@@ -188,9 +160,6 @@ jobs:
             -name "*.bin" \
             -exec ls -lh {} \; 2>/dev/null || true
 
-      # ==========================================================
-      # 10. Upload firmware artifacts
-      # ==========================================================
       - name: Upload Weather Station firmware
         if: success()
         uses: actions/upload-artifact@v4
