@@ -1,77 +1,9 @@
 /*
- * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║   ADITYA WEATHER STATION  ──  VERSION 1  (Final Release)                ║
- * ║   Production Firmware — USB/Serial Flashing Only, No OTA               ║
- * ║   [Internally this build tree was iterated as V4→V9-Secure→V10-Modern; ║
- * ║    "VERSION 1" is the official name for this finalized, audited build.]║
- * ╠══════════════════════════════════════════════════════════════════════════╣
- * ║  ARDUINODROID / ARDUINO IDE SETUP (REQUIRED)                           ║
- * ║  Board  : ESP32 Dev Module                                             ║
- * ║  Core   : ESP32 Arduino Core 3.5.5 (or 2.0.x — both supported)       ║
- * ║  Partition Scheme : Tools → Partition Scheme → "No OTA (2MB APP/2MB    ║
- * ║    SPIFFS)" — a STOCK option already built into the ESP32 board        ║
- * ║    package's dropdown menu. NOT a custom file; nothing to create,      ║
- * ║    edit, or upload. This edition has NO OTA update path, so the        ║
- * ║    OTA-slot partition schemes used by other editions (which reserve    ║
- * ║    two smaller app slots) are unnecessary here — a single, larger      ║
- * ║    app partition is used instead, maximizing usable flash for the      ║
- * ║    firmware image and LittleFS storage.                                ║
- * ║  Flash Size : 4MB   CPU : 240MHz   PSRAM : Disabled                   ║
- * ║  Update method: USB/Serial only, via Arduino IDE / ArduinoDroid.       ║
- * ║                                                                        ║
- * ║  REQUIRED LIBRARIES (install via Library Manager)                      ║
- * ║  • ESPAsyncWebServer    by me-no-dev     latest                       ║
- * ║  • AsyncTCP             by me-no-dev     latest                       ║
- * ║  • ArduinoJson          by bblanchon     v6.x  (v7 also works)       ║
- * ║  • Adafruit SSD1306     by Adafruit      latest                       ║
- * ║  • Adafruit GFX         by Adafruit      latest                       ║
- * ║  • Adafruit BME280      by Adafruit      latest                       ║
- * ║  • DHT sensor library   by Adafruit      latest                       ║
- * ║  • BH1750               by Christopher   latest                       ║
- * ║  • OneWire              by Jim Studt     latest                       ║
- * ║  • DallasTemperature    by Miles Burton  latest                       ║
- * ╠══════════════════════════════════════════════════════════════════════════╣
- * ║  CABLE-FLASH EDITION — derived from V9-Secure by completely removing   ║
- * ║  the OTA subsystem as an architectural extraction, not a disabled      ║
- * ║  feature:                                                              ║
- * ║  ✔ REMOVED: ArduinoOTA (IDE network flashing) — library, setup,        ║
- * ║    onStart/onProgress/onEnd/onError callbacks, credential, NVS key     ║
- * ║  ✔ REMOVED: Web-based OTA — /api/ota/upload, /api/ota/status,          ║
- * ║    otaWebPhase state machine, Update.h dependency, magic-byte/size     ║
- * ║    validation, stale-session watchdog, dashboard upload page (HTML/    ║
- * ║    CSS/JS: drag-drop zone, progress ring, WS progress broadcasts)      ║
- * ║  ✔ REMOVED: esp_ota_ops.h rollback bookkeeping — meaningless with a    ║
- * ║    single-app partition table (no "pending verify" boot state exists)  ║
- * ║  ✔ REMOVED: scheduleRestart()/pendingRestart deferred-reboot mechanism ║
- * ║    — its only caller was the web-OTA success path                      ║
- * ║  ✔ KEPT & unchanged: crash-loop detection (recordBootAttempt/          ║
- * ║    enterSafeMode) — this is general reliability logic, not OTA-        ║
- * ║    specific, and still protects against brownout/crash reboot loops    ║
- * ║  ✔ KEPT & unchanged: all sensor processing, dashboard, WebSocket,      ║
- * ║    security hardening (auth, brute-force lockout, CSRF, DoS caps,      ║
- * ║    credential rotation), recovery/watchdog subsystems from V9-Secure   ║
- * ║  Net effect: smaller flash footprint, one fewer credential to manage,  ║
- * ║  simpler wifiTask (no ArduinoOTA.handle() polling), simpler boot       ║
- * ║  confirmation (no OTA-partition rollback check), single dashboard      ║
- * ║  page removed. All non-OTA functionality is identical to V9-Secure.    ║
- * ╠══════════════════════════════════════════════════════════════════════════╣
- * ║  VERSION 1 FINAL AUDIT (this build) additionally includes:              ║
- * ║  ✔ FIXED: CSRF Origin-check substring bypass (exact host match now)    ║
- * ║  ✔ FIXED: /api/system hard-coded factory API key in dashboard JS       ║
- * ║  ✔ FIXED: non-functional Restart-Device buttons — real /api/restart    ║
- * ║  ✔ FIXED: missing CSRF check on /api/wifi/reconnect                    ║
- * ║  ✔ REMOVED: fake demo-data auto-injector (fabricated IP/SSID/MAC/      ║
- * ║    sensor-health/event-log entries shown as if real on every page load)║
- * ║  ✔ FIXED: body{min-width:1200px} — this defeated every mobile @media   ║
- * ║    breakpoint; dashboard now genuinely responsive on phone browsers    ║
- * ║  ✔ ADDED: session-token auth (login once via /api/login, then          ║
- * ║    Authorization: Bearer <token> instead of resending the password     ║
- * ║    on every request; Basic Auth kept as an unchanged fallback)         ║
- * ║  Full braces/parens/brackets balance verified after every change.      ║
- * ╚══════════════════════════════════════════════════════════════════════════╝
+ * Aditya Weather Station
+ * ESP32 firmware - USB/Serial flashing only, no OTA
  */
 
-// ── Libraries ─────────────────────────────────────────────────────────────────
+
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ESPAsyncWebServer.h>
@@ -93,13 +25,10 @@
 #include <time.h>
 #include <math.h>
 #include <stdarg.h>
-#include <ctype.h>              // V9 NEW: isalnum() used by URL-encoding helper
+#include <ctype.h>
 #include <esp_heap_caps.h>
-#include <esp_system.h>        // V8 NEW: esp_reset_reason() for crash-loop diagnostics
+#include <esp_system.h>
 
-// Ensure ESP_ARDUINO_VERSION macros are available (defined in Core 2.0.4+).
-// If for any reason they are not defined (very old toolchain), fall back to 0
-// so that the Core 3.x code paths are skipped and Core 2.x paths are used.
 #ifndef ESP_ARDUINO_VERSION
   #define ESP_ARDUINO_VERSION 0
 #endif
@@ -107,9 +36,6 @@
   #define ESP_ARDUINO_VERSION_VAL(a,b,c) (((a)<<16)|((b)<<8)|(c))
 #endif
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   CONFIGURATION CONSTANTS
-// ═══════════════════════════════════════════════════════════════════════════════
 #define FIRMWARE_VERSION      "1.0"
 #define SEA_LEVEL_HPA         1013.25f
 #define AUTO_CYCLE_MS         10000
@@ -121,24 +47,20 @@
 #define NTP_RESYNC_INTERVAL   3600
 #define AP_SSID               "WeatherStation-Setup"
 #define MDNS_NAME             "weatherstation"
-#define WS_CLEANUP_INTERVAL_MS 30000   // V7: periodic WebSocket client cleanup
+#define WS_CLEANUP_INTERVAL_MS 30000
 
-// ── V8 NEW: Boot-confirmation / rollback safety ─────────────────────────────
-#define BOOT_CONFIRM_DELAY_MS   20000     // new firmware must run this long before being marked valid
-#define PREF_BOOT_FAIL_COUNT    "boot_fc" // crash-loop counter key in NVS
-#define PREF_BOOT_CONFIRMED     "boot_ok" // whether current image was ever confirmed stable
-#define CRASH_LOOP_THRESHOLD    3         // this many fast-reboots in a row -> safe mode
+#define BOOT_CONFIRM_DELAY_MS   20000
+#define PREF_BOOT_FAIL_COUNT    "boot_fc"
+#define PREF_BOOT_CONFIRMED     "boot_ok"
+#define CRASH_LOOP_THRESHOLD    3
 
-// ── V8 NEW: I2C bus recovery & per-sensor hard-fail escalation ──────────────
-#define I2C_RECOVERY_AFTER_FAILS 8        // consecutive fails before attempting bus unstick
+#define I2C_RECOVERY_AFTER_FAILS 8
 #define I2C_SDA_PIN  21
 #define I2C_SCL_PIN  22
 
-// ── V8 NEW: Watchdog / task heartbeat overhaul ──────────────────────────────
-#define TASK_HEARTBEAT_TIMEOUT_MS  15000  // a task not checking in for this long is considered stuck
-#define WIFI_HARD_RESET_AFTER_FAILS 10    // full WiFi.mode() power-cycle after this many failed reconnects
+#define TASK_HEARTBEAT_TIMEOUT_MS  15000
+#define WIFI_HARD_RESET_AFTER_FAILS 10
 
-// Sensor pipeline tuning
 #define DS18_SAMPLE_COUNT     3
 #define BME_RETRY_MAX         3
 #define MA_WINDOW             5
@@ -155,25 +77,18 @@
 #define HEAP_ERROR_BYTES       20000
 #define FRAG_WARN_PCT          50
 
-// Security — compiled-in FACTORY DEFAULTS ONLY.
-// V9: the live values actually enforced at runtime live in `sec` (loaded from
-// NVS via loadSecurityConfig()/saveSecurityConfig()) and fall back to these
-// constants only on first boot / if NVS has never been written. Change them
-// via the authenticated /api/security/credentials endpoint, not by re-flashing.
 #define DASH_USER             "admin"
 #define DASH_PASS             "weather123"
 #define API_KEY               "ws-api-key-v3"
 #define LOG_CLEAR_TOKEN       "clear-ok"
 
-// V9 NEW: DoS / brute-force / body-size hardening tunables
-#define MAX_BODY_BYTES          4096   // hard cap on any buffered JSON POST body
-#define AUTH_TRACK_SLOTS        16     // how many distinct client IPs we track at once
-#define AUTH_FAIL_LOCK_THRESHOLD 5     // failures before an IP gets locked out
-#define AUTH_FAIL_WINDOW_MS      60000UL   // failures older than this don't count
-#define AUTH_LOCKOUT_BASE_MS     2000UL    // lockout = base * 2^(fails-threshold), capped below
-#define AUTH_LOCKOUT_MAX_MS      300000UL  // cap lockout at 5 minutes
+#define MAX_BODY_BYTES          4096
+#define AUTH_TRACK_SLOTS        16
+#define AUTH_FAIL_LOCK_THRESHOLD 5
+#define AUTH_FAIL_WINDOW_MS      60000UL
+#define AUTH_LOCKOUT_BASE_MS     2000UL
+#define AUTH_LOCKOUT_MAX_MS      300000UL
 
-// Hardware
 #define DHT_PIN       4
 #define DHT_TYPE      DHT22
 #define DS18B20_PIN   5
@@ -185,26 +100,22 @@
 #define BME_ADDR      0x76
 #define BH_ADDR       0x23
 #define PRESS_BUF_SIZE  12
-#define WDT_TIMEOUT_S   30
+#define WDT_TIMEOUT_S   60
 #define OVERRIDE_DURATION_MS  60000UL
 #define OWM_API_DEFAULT_KEY   ""
 
-// Preferences keys
 #define PREF_NAMESPACE  "ws_cfg"
 #define PREF_TZ_OFFSET  "tz_offset"
 #define PREF_WIFI_SSID  "wifi_ssid"
 #define PREF_WIFI_PASS  "wifi_pass"
 #define PREF_OWM_KEY    "owm_key"
 #define PREF_TZ_STR     "tz_str"
-#define PREF_AP_PASS    "ap_pass"       // Offline AP password (saved in prefs)
-#define PREF_WX_CITY    "wx_city"       // Persistent OpenWeather location
+#define PREF_AP_PASS    "ap_pass"
+#define PREF_WX_CITY    "wx_city"
 #define PREF_WX_COUNTRY "wx_country"
-#define FALLBACK_AP_PASS "weather123"   // Default AP password for offline access
-#define WEATHER_REFRESH_MS (10UL*60UL*1000UL)  // Persistent OWM refresh interval
+#define FALLBACK_AP_PASS "weather123"
+#define WEATHER_REFRESH_MS (10UL*60UL*1000UL)
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   PERIPHERAL OBJECTS
-// ═══════════════════════════════════════════════════════════════════════════════
 Adafruit_SSD1306  display(SCREEN_W, SCREEN_H, &Wire, -1);
 DHT               dht(DHT_PIN, DHT_TYPE);
 Adafruit_BME280   bme;
@@ -216,59 +127,40 @@ DNSServer         captiveDns;
 AsyncWebSocket    ws("/ws");
 Preferences       prefs;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   FREERTOS HANDLES & MUTEXES
-// ═══════════════════════════════════════════════════════════════════════════════
 SemaphoreHandle_t dataMutex;
 SemaphoreHandle_t displayMutex;
 SemaphoreHandle_t overrideMutex;
 SemaphoreHandle_t eventMutex;
-SemaphoreHandle_t wsMutex;    // V7 FIX: protects ws.textAll() from concurrent tasks
-SemaphoreHandle_t fsMutex;    // V8 FIX: LittleFS not thread-safe — was used but never declared (latent compile bug)
-// authTableMutex declared near SecurityConfig below (protects authFailTable)
+SemaphoreHandle_t wsMutex;
+SemaphoreHandle_t fsMutex;
 
 TaskHandle_t      hSensorTask;
 TaskHandle_t      hDisplayTask;
 TaskHandle_t      hWifiTask;
 TaskHandle_t      hHealthTask;
 
-
-// ── V8 NEW: Boot confirmation / rollback / crash-loop tracking ──────────────
 volatile bool     bootConfirmed    = false;
 uint32_t          bootStartMs      = 0;
 volatile bool     safeModeActive   = false;
 char              safeModeReason[64] = {0};
 
-// ── V8 NEW: Per-task heartbeat watchdog (independent of esp_task_wdt) ───────
 volatile uint32_t hbSensor=0, hbDisplay=0, hbWifi=0, hbHealth=0;
 
-// ── V8 NEW: I2C bus health tracking (for bus-recovery escalation) ───────────
 volatile uint16_t i2cBmeFailStreak = 0, i2cBhFailStreak = 0;
 volatile uint32_t i2cRecoveryCount = 0;
 
-// ── V8 NEW: WiFi hard-reset escalation (beyond simple WiFi.reconnect()) ─────
 volatile uint16_t wifiHardFailStreak = 0;
 volatile uint32_t wifiHardResetCount = 0;
 
-volatile bool     fetchWxRunning   = false;  // BUG4 FIX: prevents concurrent duplicate weather fetches
+volatile bool     fetchWxRunning   = false;
 
-// V8 NEW: tracks whether the OLED was detected at boot. All display-drawing
-// helpers (showSplash/bootProgressStep/showBootSequence/displayTask render
-// path) check this first so a missing/dead OLED degrades gracefully instead
-// of being a fatal boot-time hang.
 volatile bool oledOK = true;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   SENSOR HEALTH
-// ═══════════════════════════════════════════════════════════════════════════════
 enum SensorHealth : uint8_t { HEALTH_ONLINE = 0, HEALTH_WARNING = 1, HEALTH_ERROR = 2 };
 inline const char* healthStr(SensorHealth h) {
   switch (h) { case HEALTH_ONLINE: return "ONLINE"; case HEALTH_WARNING: return "WARNING"; default: return "ERROR"; }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   SHARED SENSOR DATA
-// ═══════════════════════════════════════════════════════════════════════════════
 struct SensorData {
   float dhtTemp, dhtHumidity;
   float bmeTemp, bmePressure, bmeHumidity, altitudeM, pressureTrend;
@@ -288,7 +180,6 @@ struct SensorData {
 };
 SensorData sd = {};
 
-// Moving-average ring buffers (pipeline-internal)
 float dhtTempSamples[MA_WINDOW]; float dhtHumSamples[MA_WINDOW]; uint8_t dhtMaIdx=0; bool dhtMaFull=false;
 float bmeTempSamples[MA_WINDOW]; float bmePressSamples[MA_WINDOW]; float bmeHumSamples[MA_WINDOW]; uint8_t bmeMaIdx=0; bool bmeMaFull=false;
 float luxSamples[MA_WINDOW]; uint8_t luxMaIdx=0; bool luxMaFull=false;
@@ -296,19 +187,14 @@ float dsSamples[MA_WINDOW]; uint8_t dsMaIdx=0; bool dsMaFull=false;
 bool  dhtHasLastGood=false, bmeHasLastGood=false, bhHasLastGood=false, dsHasLastGood=false;
 float dhtLastGoodT=0, dhtLastGoodH=0, bmeLastGoodP=0, bhLastGoodLux=0, dsLastGoodT=0;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   LIVE EVENT LOG
-// ═══════════════════════════════════════════════════════════════════════════════
 enum EventLevel : uint8_t { EVT_INFO = 0, EVT_WARN = 1, EVT_ERROR = 2 };
 struct EventEntry { uint32_t ms; EventLevel level; char msg[64]; };
 EventEntry        eventLog[EVENT_LOG_SIZE];
 uint16_t          eventHead = 0, eventCount = 0;
 uint32_t          eventSeq  = 0;
-// NOTE: eventMutex_h removed — it was declared but never initialized or used anywhere.
-//       The real, fully-wired mutex is `eventMutex` above.
 
-bool offlineMode = false;         // V8 FIX: was used throughout but never declared (latent compile bug)
-char apIpStr[20] = "0.0.0.0";    // V8 FIX: was used throughout but never declared (latent compile bug)
+bool offlineMode = false;
+char apIpStr[20] = "0.0.0.0";
 
 void logEvent(EventLevel level, const char* fmt, ...);
 
@@ -317,9 +203,6 @@ uint32_t pressBufTime[PRESS_BUF_SIZE];
 uint8_t  pressBufIdx  = 0;
 bool     pressBufFull = false;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   DISPLAY STATE MACHINE
-// ═══════════════════════════════════════════════════════════════════════════════
 enum DisplayState : uint8_t { DISP_LOCAL = 0, DISP_OVERRIDE = 1 };
 
 struct OverrideData {
@@ -340,6 +223,7 @@ struct PersistentWeatherData {
   char timezone[40];
   float tempC, feelsLike, humidity, pressure, windSpeed;
   int clouds;
+  int visibilityM;
   uint32_t updatedMs;
   bool valid;
 };
@@ -348,55 +232,34 @@ PersistentWeatherData savedWeather = {};
 volatile DisplayState displayState  = DISP_LOCAL;
 volatile uint32_t     overrideEndMs = 0;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   SAVED CONFIG
-// ═══════════════════════════════════════════════════════════════════════════════
 struct SavedConfig {
   int32_t tzOffsetSec; char tzStr[40]; char owmApiKey[48]; char wifiSsid[64]; char wifiPass[64];
-  char apPass[32];   // Offline fallback AP password
+  char apPass[32];
   char weatherCity[48];
   char weatherCountry[8];
 };
 SavedConfig cfg = { 19800, "IST-5:30", "", "", "", FALLBACK_AP_PASS, "", "" };
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   V9 NEW: RUNTIME SECURITY CONFIG (NVS-backed, overrides compiled defaults)
-// ═══════════════════════════════════════════════════════════════════════════════
 struct SecurityConfig {
   char dashUser[24];
   char dashPass[40];
   char apiKey[48];
   char logClearToken[32];
-  bool usingFactoryDefaults;   // true until an operator changes at least one credential
+  bool usingFactoryDefaults;
 };
 SecurityConfig sec = { DASH_USER, DASH_PASS, API_KEY, LOG_CLEAR_TOKEN, true };
 
-// V9 NEW: per-client-IP auth-failure tracking for brute-force lockout.
-// Small fixed-size table (no dynamic allocation) — oldest/least-recently-used
-// slot is evicted when a new IP needs tracking and the table is full, so a
-// distributed low-rate attack from many IPs can't grow memory unbounded.
 struct AuthFailEntry { uint32_t ip; uint8_t fails; uint32_t firstFailMs; uint32_t lastFailMs; };
 AuthFailEntry authFailTable[AUTH_TRACK_SLOTS] = {};
 
-// ── Modern session-token layer (V10) ─────────────────────────────────────
-// Classic HTTP Basic Auth re-sends the raw password on every single request.
-// This adds an optional, additive token layer on top (Basic Auth still works
-// unchanged as the fallback/bootstrap path — nothing that depended on it
-// breaks): the dashboard logs in once via /api/login, receives a random
-// 128-bit token, and uses `Authorization: Bearer <token>` for every request
-// after that, so the password itself only crosses the wire once per session
-// instead of on every single API call.
-#define MAX_SESSIONS      4          // concurrent logged-in browser tabs/devices
-#define SESSION_TOKEN_LEN 32         // hex chars (128 bits of esp_random())
-#define SESSION_TTL_MS    (30UL*60UL*1000UL)  // 30 min sliding expiry
+#define MAX_SESSIONS      4
+#define SESSION_TOKEN_LEN 32
+#define SESSION_TTL_MS    (30UL*60UL*1000UL)
 struct SessionEntry { char token[SESSION_TOKEN_LEN+1]; uint32_t expiresAt; bool active; };
 SessionEntry sessions[MAX_SESSIONS] = {};
 SemaphoreHandle_t sessionMutex;
 SemaphoreHandle_t authTableMutex;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   PAGE SYSTEM
-// ═══════════════════════════════════════════════════════════════════════════════
 enum Page : uint8_t {
   PAGE_WEATHER = 0, PAGE_TIME = 1, PAGE_CALENDAR = 2, PAGE_EXTRA = 3,
   PAGE_SYSTEM  = 4, PAGE_SENSOR_DIAG = 5, TOTAL_PAGES = 6
@@ -406,7 +269,6 @@ volatile Page    targetPage     = PAGE_WEATHER;
 volatile bool    pageChangeReq  = false;
 uint32_t         lastAutoCycleMs = 0;
 
-// Log ring
 struct LogRecord { time_t ts; float temp, humidity, pressure, lux, outdoorTemp; };
 LogRecord logRing[MAX_LOG_RECORDS];
 uint16_t  logHead=0, logCount=0;
@@ -415,9 +277,6 @@ uint8_t   activeLog=0;
 static const char* const DAY_NAMES[]  = { "Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday" };
 static const char* const MONTH_FULL[] = { "","January","February","March","April","May","June","July","August","September","October","November","December" };
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   FORWARD DECLARATIONS
-// ═══════════════════════════════════════════════════════════════════════════════
 void sensorTask(void*); void displayTask(void*); void wifiTask(void*); void systemHealthTask(void*);
 void setupWebServer();
 void startCaptiveDns();
@@ -451,9 +310,8 @@ float movingAverage(float* ring, uint8_t cap, bool full, uint8_t idx);
 uint8_t computeConfidence(uint16_t retries, uint16_t consecFails, bool rejectedSpike, bool gotFreshSample);
 SensorHealth healthFromFails(uint16_t consecFails, bool hasLastGood, bool gotFreshSample);
 void safeRestart(const char* reason);
-void wsTextAll(const String& msg);   // V7: mutex-wrapped ws.textAll()
+void wsTextAll(const String& msg);
 
-// V9 NEW forward declarations — security hardening
 bool secureCompare(const char* a, const char* b);
 uint32_t clientIpToU32(AsyncWebServerRequest* req);
 String ipU32ToStr(uint32_t ip);
@@ -466,7 +324,6 @@ void loadSecurityConfig();
 void saveSecurityConfig();
 void applySecurityHeaders(AsyncWebServerResponse* resp);
 
-// V8 NEW forward declarations
 void i2cBusRecover();
 void confirmBootIfStable();
 void enterSafeMode(const char* reason);
@@ -474,11 +331,6 @@ void checkTaskHeartbeats();
 void hardResetWifi();
 void recordBootAttempt();
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   V7: MUTEX-SAFE WebSocket broadcast
-//   Wraps every ws.textAll() call so sensorTask and healthTask cannot
-//   call into the AsyncWebSocket layer simultaneously — fixes the race.
-// ═══════════════════════════════════════════════════════════════════════════════
 void wsTextAll(const String& msg) {
   if (ws.count() == 0) return;
   if (xSemaphoreTake(wsMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -487,51 +339,33 @@ void wsTextAll(const String& msg) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   V9 NEW: SECURITY HARDENING SUBSYSTEM
-//   Constant-time credential comparison, per-IP brute-force lockout, request
-//   body-size capping, lightweight same-origin (CSRF) checking, and NVS-backed
-//   overridable credentials. Kept dependency-free (no extra libraries) so it
-//   compiles unchanged under ArduinoDroid / Arduino IDE.
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// Constant-time string compare — prevents an attacker from inferring how many
-// leading bytes matched from response timing (classic '==' / strcmp early-out
-// leaks this). Both strings are still bounded by their own NUL for length,
-// but the byte-comparison loop always runs the same number of iterations for
-// a given `a` length, and result is derived without early branching.
 bool secureCompare(const char* a, const char* b) {
   size_t la = strlen(a), lb = strlen(b);
   uint8_t diff = (la != lb) ? 1 : 0;
   size_t n = (la < lb) ? la : lb;
   for (size_t i = 0; i < n; i++) diff |= (uint8_t)(a[i] ^ b[i]);
-  // Still walk out to the longer length so timing doesn't leak which string
-  // was shorter beyond the initial length check.
+  
   for (size_t i = n; i < ((la > lb) ? la : lb); i++) diff |= 1;
   return diff == 0;
 }
 
-// Reduce a client's IP to a uint32 key for the fixed-size fail-tracking table.
 uint32_t clientIpToU32(AsyncWebServerRequest* req) {
   IPAddress ip = req->client()->remoteIP();
   return ((uint32_t)ip[0] << 24) | ((uint32_t)ip[1] << 16) | ((uint32_t)ip[2] << 8) | (uint32_t)ip[3];
 }
 
-// Look up (without creating) a fail-tracking entry for this IP and decide if
-// it is currently locked out. If locked, retryAfterMsOut is filled with the
-// remaining lockout duration so the caller can surface a Retry-After hint.
 bool isAuthLocked(uint32_t ip, uint32_t* retryAfterMsOut) {
   if (retryAfterMsOut) *retryAfterMsOut = 0;
-  if (xSemaphoreTake(authTableMutex, pdMS_TO_TICKS(50)) != pdTRUE) return false; // fail-open on contention, never fail-closed the whole dashboard
+  if (xSemaphoreTake(authTableMutex, pdMS_TO_TICKS(50)) != pdTRUE) return false;
   bool locked = false;
   uint32_t now = millis();
   for (uint8_t i = 0; i < AUTH_TRACK_SLOTS; i++) {
     if (authFailTable[i].ip == ip && authFailTable[i].fails > 0) {
-      // Expire stale failure windows so a lockout doesn't persist forever.
+      
       if (now - authFailTable[i].lastFailMs > AUTH_FAIL_WINDOW_MS) { authFailTable[i].fails = 0; break; }
       if (authFailTable[i].fails >= AUTH_FAIL_LOCK_THRESHOLD) {
         uint8_t over = authFailTable[i].fails - AUTH_FAIL_LOCK_THRESHOLD;
-        uint32_t lockMs = AUTH_LOCKOUT_BASE_MS << (over > 6 ? 6 : over); // exponential, capped shift
+        uint32_t lockMs = AUTH_LOCKOUT_BASE_MS << (over > 6 ? 6 : over);
         if (lockMs > AUTH_LOCKOUT_MAX_MS) lockMs = AUTH_LOCKOUT_MAX_MS;
         uint32_t elapsed = now - authFailTable[i].lastFailMs;
         if (elapsed < lockMs) { locked = true; if (retryAfterMsOut) *retryAfterMsOut = lockMs - elapsed; }
@@ -543,8 +377,6 @@ bool isAuthLocked(uint32_t ip, uint32_t* retryAfterMsOut) {
   return locked;
 }
 
-// V9.1 NEW: human-readable IP for log messages (authFailTable only stores the
-// packed uint32 form for compactness).
 String ipU32ToStr(uint32_t ip) {
   char buf[16];
   snprintf(buf,sizeof(buf),"%u.%u.%u.%u",(unsigned)(ip>>24)&0xFF,(unsigned)(ip>>16)&0xFF,(unsigned)(ip>>8)&0xFF,(unsigned)ip&0xFF);
@@ -560,17 +392,15 @@ void recordAuthFailure(uint32_t ip) {
     if (authFailTable[i].fails == 0) { if (slot < 0) slot = i; }
     if (authFailTable[i].lastFailMs < oldestMs) { oldestMs = authFailTable[i].lastFailMs; oldestIdx = i; }
   }
-  if (slot < 0) slot = oldestIdx;  // table full of active entries — evict least-recently-failed
+  if (slot < 0) slot = oldestIdx;
   if (authFailTable[slot].ip != ip || authFailTable[slot].fails == 0) {
     authFailTable[slot].ip = ip; authFailTable[slot].fails = 0; authFailTable[slot].firstFailMs = now;
   }
   if (authFailTable[slot].fails < 250) authFailTable[slot].fails++;
   authFailTable[slot].lastFailMs = now;
-  uint8_t failsNow = authFailTable[slot].fails;   // V9.1: read out before releasing mutex, log after
+  uint8_t failsNow = authFailTable[slot].fails;
   xSemaphoreGive(authTableMutex);
-  // V9.1 NEW: forensic audit trail — previously failures were tracked for
-  // lockout purposes only, with no record an operator could ever see. Logged
-  // outside the mutex to avoid holding it during logEvent's own eventMutex.
+  
   if (failsNow == 1) logEvent(EVT_WARN, "Auth failure from %s", ipU32ToStr(ip).c_str());
   else if (failsNow == AUTH_FAIL_LOCK_THRESHOLD) logEvent(EVT_ERROR, "Auth lockout engaged for %s (%u failures)", ipU32ToStr(ip).c_str(), (unsigned)failsNow);
 }
@@ -581,8 +411,6 @@ void recordAuthSuccess(uint32_t ip) {
   xSemaphoreGive(authTableMutex);
 }
 
-// Strip "scheme://" and any trailing "/path?query#fragment" from a URL-like
-// header value, leaving just the "host[:port]" portion for exact comparison.
 static String extractUrlHost(const String& url) {
   int start = url.indexOf("://");
   start = (start >= 0) ? start + 3 : 0;
@@ -594,37 +422,16 @@ static String extractUrlHost(const String& url) {
   return url.substring(start, end);
 }
 
-// Lightweight CSRF mitigation for state-changing POST endpoints: same-origin
-// browser requests always carry an Origin or Referer header matching the
-// device's own Host header; a cross-site form/script cannot forge that
-// header. This blocks the classic "attacker page auto-submits a form to your
-// router's IP" CSRF pattern without needing per-session tokens or any change
-// to the existing dashboard JS (which never sends cross-origin requests).
-//
-// SECURITY FIX (self-review): the original implementation used
-// `origin.indexOf(host) >= 0`, a *substring* test. That is bypassable: if the
-// device's host is e.g. "192.168.1.50", an attacker who controls ANY domain
-// can host a CSRF page at "http://192.168.1.50.attacker.com/" — the browser
-// will send that as the real Origin header, and it legitimately CONTAINS
-// "192.168.1.50" as a substring, so the old check wrongly passed it. Browsers
-// auto-attach cached HTTP Basic Auth credentials to requests that target the
-// device's origin regardless of which page initiated them, so this genuinely
-// defeated the CSRF protection on every checkBasicAuth-gated POST endpoint.
-// Fixed by extracting the exact host[:port] from Origin/Referer and requiring
-// a full, case-insensitive match against req->host() — not a substring test.
 bool checkOriginSameHost(AsyncWebServerRequest* req) {
   String host = req->host();
-  if (host.length() == 0) return true; // can't verify — don't block legitimate direct API/tool usage
+  if (host.length() == 0) return true;
   String origin = req->hasHeader("Origin") ? req->header("Origin") : String();
   String referer = req->hasHeader("Referer") ? req->header("Referer") : String();
   String check = origin.length() ? origin : referer;
-  if (check.length() == 0) return true; // non-browser clients (curl, ESP-to-ESP) don't send these — allow
+  if (check.length() == 0) return true;
   return extractUrlHost(check).equalsIgnoreCase(host);
 }
 
-// Pre-flight body-size rejection — call BEFORE buffering any POST body into
-// a String, using the declared Content-Length. Prevents a hostile client
-// from streaming megabytes into heap via a slow/chunked POST.
 bool rejectIfBodyTooLarge(AsyncWebServerRequest* req, size_t total) {
   if (total > MAX_BODY_BYTES) {
     req->send(413, "application/json", "{\"error\":\"Body too large\"}");
@@ -639,10 +446,6 @@ void applySecurityHeaders(AsyncWebServerResponse* resp) {
   resp->addHeader("Cache-Control", "no-store");
 }
 
-// ── SECURITY CONFIG PERSISTENCE (NVS) ────────────────────────────────────────
-// Loaded once at boot. Falls back to the compiled-in factory defaults if NVS
-// has never been written (fresh device / first boot), so existing deployments
-// keep working unmodified until an operator explicitly changes credentials.
 void loadSecurityConfig() {
   prefs.begin(PREF_NAMESPACE, true);
   String u = prefs.getString("sec_user", DASH_USER);
@@ -665,21 +468,6 @@ void saveSecurityConfig() {
   prefs.end();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   V8: NEXT-LEVEL ERROR HANDLING & RECOVERY SUBSYSTEM
-//   Covers: I2C bus recovery, boot-confirmation/rollback safety, crash-loop
-//   detection -> safe mode, per-task heartbeat watchdog, WiFi hard-reset
-//   escalation, and centralized restart scheduling (no blocking delay(5000)
-//   calls inside tasks — restarts are deferred to loop()/wifiTask so the
-//   web server can finish responding first).
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// ── I2C BUS RECOVERY ─────────────────────────────────────────────────────────
-// A wedged I2C bus (slave holding SDA low, noise, brown-out mid-transaction)
-// cannot be fixed by re-calling Wire.begin() alone — the bus must be manually
-// clocked free first. This bit-bangs up to 9 clock pulses on SCL while SDA is
-// monitored, which is the standard I2C bus-recovery procedure, then performs
-// a full Wire reinitialization.
 void i2cBusRecover() {
   logEvent(EVT_WARN, "I2C bus recovery triggered");
   i2cRecoveryCount++;
@@ -688,12 +476,12 @@ void i2cBusRecover() {
   pinMode(I2C_SCL_PIN, OUTPUT);
   digitalWrite(I2C_SCL_PIN, HIGH);
   delayMicroseconds(5);
-  // If SDA is stuck low, clock up to 9 pulses to let the stuck slave release it
+  
   for (uint8_t i = 0; i < 9 && digitalRead(I2C_SDA_PIN) == LOW; i++) {
     digitalWrite(I2C_SCL_PIN, LOW);  delayMicroseconds(5);
     digitalWrite(I2C_SCL_PIN, HIGH); delayMicroseconds(5);
   }
-  // Manually issue a STOP condition: SDA low->high while SCL is high
+  
   pinMode(I2C_SDA_PIN, OUTPUT);
   digitalWrite(I2C_SDA_PIN, LOW);  delayMicroseconds(5);
   digitalWrite(I2C_SCL_PIN, HIGH); delayMicroseconds(5);
@@ -704,14 +492,6 @@ void i2cBusRecover() {
   logEvent(EVT_INFO, "I2C bus recovery complete (#%lu)", (unsigned long)i2cRecoveryCount);
 }
 
-// ── BOOT CONFIRMATION (crash-loop counter reset) ────────────────────────────
-// Cable-Flash Edition has a single-app partition table — there is no OTA
-// "pending verify" state for the bootloader to roll back from, so the
-// esp_ota_mark_app_valid_cancel_rollback() call that existed here is gone.
-// What remains is still valuable on its own: clear the crash-loop counter
-// once we know this boot is genuinely healthy (WiFi/web server/sensor task
-// alive for BOOT_CONFIRM_DELAY_MS), so a transient bad boot doesn't
-// accumulate toward CRASH_LOOP_THRESHOLD and trip safe mode unnecessarily.
 void confirmBootIfStable() {
   if (bootConfirmed) return;
   if (millis() - bootStartMs < BOOT_CONFIRM_DELAY_MS) return;
@@ -723,9 +503,6 @@ void confirmBootIfStable() {
   logEvent(EVT_INFO, "Boot confirmed stable — crash-loop counter cleared");
 }
 
-// Called once very early in setup(), before anything risky runs, to detect
-// rapid reboot loops (e.g. a brownout/crash cycle), independent of how the
-// firmware got onto the device.
 void recordBootAttempt() {
   prefs.begin(PREF_NAMESPACE, false);
   uint32_t fails = prefs.getUInt(PREF_BOOT_FAIL_COUNT, 0);
@@ -738,21 +515,12 @@ void recordBootAttempt() {
   }
 }
 
-// Safe mode: sensors/heavy peripherals are skipped, but WiFi + web dashboard
-// still come up so the device stays reachable for re-flashing or diagnosis
-// instead of bricking itself in a silent boot loop.
 void enterSafeMode(const char* reason) {
   safeModeActive = true;
   strncpy(safeModeReason, reason, sizeof(safeModeReason) - 1);
   Serial.printf("[SAFE MODE] %s\n", reason);
 }
 
-// ── PER-TASK HEARTBEAT WATCHDOG ──────────────────────────────────────────────
-// esp_task_wdt catches a task that stops calling esp_task_wdt_reset() (hard
-// hang), but a task can also be "alive but stuck" — looping without making
-// forward progress while still feeding the WDT from a tight inner loop. Each
-// task stamps its own heartbeat every iteration; systemHealthTask cross-checks
-// staleness independently of the hardware WDT and logs/escalates accordingly.
 void checkTaskHeartbeats() {
   uint32_t now = millis();
   if (hbSensor  && (now - hbSensor)  > TASK_HEARTBEAT_TIMEOUT_MS) logEvent(EVT_ERROR, "Sensor task heartbeat stale (%lus)",  (unsigned long)((now-hbSensor)/1000));
@@ -761,25 +529,15 @@ void checkTaskHeartbeats() {
   if (hbHealth  && (now - hbHealth)  > TASK_HEARTBEAT_TIMEOUT_MS) logEvent(EVT_ERROR, "Health task heartbeat stale (%lus)",  (unsigned long)((now-hbHealth)/1000));
 }
 
-// ── WIFI HARD-RESET ESCALATION ───────────────────────────────────────────────
-// Plain WiFi.reconnect() (existing backoff logic) sometimes can't recover a
-// genuinely wedged WiFi/RF stack. After WIFI_HARD_RESET_AFTER_FAILS
-// consecutive failures, fully power-cycle the WiFi driver (mode off -> on)
-// before resuming the normal reconnect loop — this clears a class of stuck
-// states the soft reconnect cannot.
 void hardResetWifi() {
   wifiHardResetCount++;
   logEvent(EVT_WARN, "WiFi hard-reset escalation (#%lu)", (unsigned long)wifiHardResetCount);
 
-  // Keep the local Weather Station AP alive even when the STA interface
-  // needs a full Wi-Fi driver reset.
-  WiFi.disconnect(true);  // Core 3.x: turn the Wi-Fi driver off
+  WiFi.disconnect(true);
   delay(200);
   WiFi.mode(WIFI_OFF);
   delay(300);
 
-  // The local AP is intentionally persistent so the dashboard remains
-  // reachable even when the router/Internet is unavailable.
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAP(AP_SSID, cfg.apPass);
   delay(200);
@@ -787,7 +545,6 @@ void hardResetWifi() {
   strncpy(apIpStr, WiFi.softAPIP().toString().c_str(), sizeof(apIpStr) - 1);
   apIpStr[sizeof(apIpStr) - 1] = '\0';
 
-  // Recreate captive DNS after a Wi-Fi driver reset.
   startCaptiveDns();
 
   if (cfg.wifiSsid[0] != '\0') {
@@ -797,11 +554,6 @@ void hardResetWifi() {
   wifiHardFailStreak = 0;
 }
 
-
-// ═══════════════════════════════════════════════════════════════════════════════
-//   EMBEDDED DASHBOARD  (served from flash — no LittleFS required)
-//   LittleFS /index.html overrides this if present (for development).
-// ═══════════════════════════════════════════════════════════════════════════════
 static const char DASHBOARD_HTML[] PROGMEM = R"WSDASH(<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -823,13 +575,7 @@ static const char DASHBOARD_HTML[] PROGMEM = R"WSDASH(<!DOCTYPE html>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:var(--bg);color:var(--txt);
   font-family:'Rajdhani',sans-serif;font-weight:500;
-  /* V10 self-review fix: this was `min-width:1200px;overflow-x:auto` — it
-     forced the ENTIRE page to never be narrower than 1200px, so the
-     carefully-written @media(max-width:960px/620px/420px) mobile breakpoints
-     below could never actually take effect on a phone. A real phone browser
-     just showed a tiny horizontally-scrollable slice of the desktop layout
-     instead of the intended single-column mobile view. Removed entirely —
-     min-height still keeps short content from collapsing the background. */
+  
   min-height:100vh;
   background-image:
     radial-gradient(ellipse 90% 60% at 10% 40%,rgba(0,255,170,.05) 0%,transparent 65%),
@@ -847,7 +593,6 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
   grid-template-columns:206px 1fr 248px;
   grid-template-rows:54px 1fr 30px;min-height:100vh}
 
-/* ── TOPBAR ── */
 .topbar{grid-column:1/-1;display:flex;align-items:stretch;position:relative;
   background:linear-gradient(180deg,rgba(5,16,11,.99),rgba(3,10,7,.99));
   border-bottom:1px solid var(--bdr);
@@ -888,7 +633,6 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
   text-shadow:0 0 14px rgba(0,200,255,.8);letter-spacing:2px}
 .orb{font-family:'Orbitron',sans-serif}
 
-/* ── SIDEBAR ── */
 .sidebar{background:linear-gradient(180deg,rgba(5,16,11,.99),rgba(3,10,7,1));
   border-right:1px solid var(--bdr);display:flex;flex-direction:column;overflow:hidden;
   box-shadow:8px 0 32px rgba(0,0,0,.5)}
@@ -913,18 +657,12 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
 .sb-ip{font-family:'Share Tech Mono',monospace;font-size:13px;color:var(--c2);margin-top:3px;font-weight:700}
 .sb-rssi{font-size:10px;color:var(--dim);margin-top:2px}
 
-/* ── CENTER ── */
 .center{overflow-y:auto;background:var(--bg2);padding:8px;display:flex;flex-direction:column;gap:8px}
 .center::-webkit-scrollbar{width:5px}
 .center::-webkit-scrollbar-track{background:rgba(0,0,0,.2)}
 .center::-webkit-scrollbar-thumb{background:linear-gradient(180deg,var(--c1),var(--c2));border-radius:3px}
 .pg{display:none;flex-direction:column;gap:8px}.pg.on{display:flex}
 
-/* ── V-FINAL: ORCHESTRATED LOAD-IN ──────────────────────────────────────────
-   One deliberate moment on page load — every card rises and fades in, staggered
-   left-to-right / top-to-bottom, rather than the page just snapping into view.
-   `both` fill-mode holds the pre-state before the delay and the end-state after,
-   so nothing flickers. Respects prefers-reduced-motion per accessibility. */
 @keyframes cardIn{from{opacity:0;transform:translateY(16px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
 .scard,.gpanel,.panel{animation:cardIn .6s cubic-bezier(.16,1,.3,1) both}
 .scard:nth-child(1){animation-delay:.02s}.scard:nth-child(2){animation-delay:.07s}
@@ -934,7 +672,6 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
 .panel:nth-child(1){animation-delay:.43s}.panel:nth-child(2){animation-delay:.48s}.panel:nth-child(3){animation-delay:.53s}
 @media (prefers-reduced-motion:reduce){.scard,.gpanel,.panel{animation:none}}
 
-/* ── PANELS ── */
 .panel{background:linear-gradient(145deg,rgba(5,20,13,.95),rgba(3,12,8,.98));
   border:1px solid var(--bdr);border-radius:10px;padding:12px 14px;
   position:relative;overflow:hidden;
@@ -953,7 +690,6 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
   background:linear-gradient(180deg,var(--c1),var(--c2));
   border-radius:2px;box-shadow:0 0 10px var(--c2);flex-shrink:0}
 
-/* ── SENSOR CARDS ── */
 .cards-row{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
 .scard{background:linear-gradient(145deg,rgba(5,22,15,.97),rgba(3,14,9,.97));
   border:1px solid rgba(0,255,170,.2);border-radius:10px;padding:11px 11px 9px;
@@ -991,7 +727,6 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
 .sbadge.WARNING{color:var(--c4);border:1px solid rgba(251,191,36,.4)}
 .sbadge.ERROR{color:var(--c5);border:1px solid rgba(255,51,102,.4)}
 
-/* ── GRAPHS ── */
 .graphs-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .gpanel{background:linear-gradient(180deg,rgba(4,16,10,.97),rgba(2,10,7,1));
   border:1px solid var(--bdr);border-radius:10px;padding:10px 12px;
@@ -1009,7 +744,6 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
 .gtime-axis{display:flex;justify-content:space-between;font-size:8px;color:var(--dim);
   margin-top:3px;font-family:'Share Tech Mono',monospace;padding:0 2px}
 
-/* ── REAL TELEMETRY SPLIT ── */
 .telemetry-split{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .telemetry-panel{min-width:0}
 .telemetry-panel .mpanel{height:100%}
@@ -1023,10 +757,8 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
 @media(max-width:960px){.telemetry-split{grid-template-columns:1fr}}
 @media(max-width:620px){.telemetry-grid{grid-template-columns:1fr}}
 
-/* ── LOWER ── */
 .lower-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
 
-/* HEALTH */
 .sh-row{display:flex;align-items:center;gap:8px;padding:6px 0;
   border-bottom:1px dashed var(--dim2);font-size:11px;font-weight:700}
 .sh-row:last-child{border:none}
@@ -1042,7 +774,6 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
 .sh-conf{margin-left:auto;text-align:right;font-size:11px;font-weight:700}
 .sh-conf .cl{font-size:8px;color:var(--dim)}.sh-conf .cv{color:var(--c1)}
 
-/* WEATHER */
 .wx-icon{font-size:50px;filter:drop-shadow(0 0 16px rgba(0,200,255,.6));line-height:1}
 .wx-big{display:flex;align-items:center;gap:14px;margin-bottom:4px}
 .wx-main .wxcond{font-family:'Orbitron',sans-serif;font-size:17px;font-weight:900;color:var(--txt);margin-bottom:3px}
@@ -1051,7 +782,6 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
 .wxcell .wl{font-size:8px;color:var(--dim);letter-spacing:1px;text-transform:uppercase;font-weight:700}
 .wxcell .wv{font-family:'Orbitron',sans-serif;font-size:12px;font-weight:800;color:var(--txt)}
 
-/* SYSTEM */
 .gauges-row{display:flex;justify-content:space-around;margin-bottom:10px}
 .gauge-item canvas{display:block}
 .gauge-item .glbl{font-size:8px;color:var(--dim);letter-spacing:1px;text-transform:uppercase;
@@ -1066,7 +796,6 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
 .prog-fill.pu{background:linear-gradient(90deg,rgba(120,0,200,.8),var(--c3))}
 .prog-val{width:58px;text-align:right;color:var(--txt);font-family:'Share Tech Mono',monospace;font-size:10px}
 
-/* RIGHT PANEL */
 .rpanel{background:linear-gradient(180deg,rgba(5,16,11,.99),rgba(3,10,7,1));
   border-left:1px solid var(--bdr);display:flex;flex-direction:column;overflow:hidden;
   box-shadow:-8px 0 32px rgba(0,0,0,.5)}
@@ -1107,14 +836,12 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
 .qa-btn.red{border-color:rgba(255,51,102,.3);color:var(--c5)}
 .qa-btn.red:hover{box-shadow:0 0 16px rgba(255,51,102,.2)}
 
-/* BOTBAR */
 .botbar{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;
   background:linear-gradient(90deg,rgba(5,16,11,.99),rgba(3,10,7,.99),rgba(5,16,11,.99));
   border-top:1px solid var(--bdr);padding:0 16px;font-size:9px;color:var(--dim);
   font-weight:600;letter-spacing:1.5px;box-shadow:0 -4px 24px rgba(0,0,0,.5)}
 .botbar b{color:var(--c1)}
 
-/* KV ROWS */
 .kv{display:flex;justify-content:space-between;font-size:11px;font-weight:600;
   padding:5px 0;border-bottom:1px dashed rgba(26,64,48,.5);transition:background .15s}
 .kv:hover{background:rgba(0,255,170,.03);margin:0 -4px;padding:5px 4px}
@@ -1124,7 +851,6 @@ body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
 .kv .v.bl,.kv .v.cy{color:var(--c2);text-shadow:0 0 6px rgba(0,200,255,.3)}
 .kv .v.rd{color:var(--c5)}
 
-/* FORMS */
 .sect{font-family:'Orbitron',sans-serif;font-size:8px;letter-spacing:3px;color:var(--c2);
   text-transform:uppercase;font-weight:800;padding:6px 0 5px;
   border-bottom:1px solid rgba(0,200,255,.22);margin-bottom:8px;
@@ -1147,13 +873,7 @@ input::placeholder{color:var(--dim)}
 .smsg{font-size:9px;min-height:13px;margin-top:4px;font-weight:700}
 .smsg.ok{color:var(--c1)}.smsg.er{color:var(--c5)}
 .page-content{padding:10px}
-/* V8 FIX: critical missing-class bug. The page body markup (Live Data,
-   Graphs, Sensors, Weather Search, Settings, System Info pages) uses
-   .mpanel/.fbtn/.page-wrap/.fld/label — but this theme's stylesheet only
-   ever defined the equivalents .mini-panel/.btn/.page-content. Every one of
-   those secondary pages was rendering with ZERO panel backgrounds, borders,
-   button styling, or form-field spacing — appearing functionally blank.
-   These aliases make the markup actually render as intended. */
+
 .mpanel{background:rgba(3,14,9,.75);border:1px solid var(--bdr);border-radius:8px;padding:10px}
 .page-wrap{padding:10px}
 .fbtn{background:linear-gradient(135deg,rgba(0,200,255,.08),transparent);
@@ -1168,13 +888,11 @@ input::placeholder{color:var(--dim)}
 .evlog-page{height:360px;overflow-y:auto;border:1px solid var(--bdr);
   background:rgba(2,8,5,.9);padding:8px;border-radius:6px;font-family:'Share Tech Mono',monospace;font-size:9px}
 
-/* OFFLINE BANNER */
 #ovBan{display:none;position:fixed;top:54px;left:206px;right:248px;z-index:100;
   background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.5);
   color:var(--c4);font-size:9px;padding:5px 14px;text-align:center;
   font-weight:700;letter-spacing:1px;backdrop-filter:blur(4px)}
 
-/* RESPONSIVE */
 @media(max-width:1200px){
   .shell{grid-template-columns:190px 1fr 220px}
   .cards-row{grid-template-columns:repeat(3,1fr)}
@@ -1231,7 +949,6 @@ input::placeholder{color:var(--dim)}
 <div id="scan"></div>
 <div class="shell">
 
-<!-- ═══ TOPBAR ═══ -->
 <header class="topbar">
   <div class="tb-brand brand">
     <div class="brand-dot" id="wdot"></div>
@@ -1270,7 +987,6 @@ input::placeholder{color:var(--dim)}
   </div>
 </header>
 
-<!-- ═══ SIDEBAR ═══ -->
 <nav class="sidebar">
   <div class="sb-section">MAIN MENU</div>
   <div class="sb-nav">
@@ -1294,17 +1010,15 @@ input::placeholder{color:var(--dim)}
   </div>
 </nav>
 
-<!-- ═══ CENTER ═══ -->
 <main class="center">
 
-<!-- DASHBOARD PAGE -->
 <div id="pg-dash" class="pg on">
-  <!-- Sensor Cards -->
+  
   <div class="cards-row">
     <div class="scard">
       <div class="sbadge" id="bd-dht">--</div>
       <div class="ico">🌡️</div>
-      <div class="slbl">TEMPERATURE</div>
+      <div class="slbl">TEMPERATURE <span id="src-temp" style="font-size:8px;opacity:.65;font-weight:400"></span></div>
       <div class="sval" id="v-temp">--.-</div>
       <div class="sunit">°C</div>
       <div class="trend-lbl">Trend</div>
@@ -1313,7 +1027,7 @@ input::placeholder{color:var(--dim)}
     </div>
     <div class="scard">
       <div class="ico">💧</div>
-      <div class="slbl">HUMIDITY</div>
+      <div class="slbl">HUMIDITY <span id="src-hum" style="font-size:8px;opacity:.65;font-weight:400"></span></div>
       <div class="sval" style="color:var(--c3);text-shadow:0 0 12px rgba(168,85,247,.55)" id="v-hum">--</div>
       <div class="sunit">%</div>
       <div class="trend-lbl">Trend</div>
@@ -1323,7 +1037,7 @@ input::placeholder{color:var(--dim)}
     <div class="scard">
       <div class="sbadge" id="bd-bme">--</div>
       <div class="ico">📊</div>
-      <div class="slbl">PRESSURE</div>
+      <div class="slbl">PRESSURE <span id="src-pres" style="font-size:8px;opacity:.65;font-weight:400"></span></div>
       <div class="sval" style="color:var(--c4);text-shadow:0 0 12px rgba(245,158,11,.55)" id="v-pres">----</div>
       <div class="sunit">hPa <span id="v-trend" style="font-size:13px"></span></div>
       <div class="trend-lbl">Trend</div>
@@ -1361,7 +1075,6 @@ input::placeholder{color:var(--dim)}
     </div>
   </div>
 
-  <!-- Graphs -->
   <div class="graphs-row">
     <div class="gpanel">
       <div class="gphdr">
@@ -1398,7 +1111,6 @@ input::placeholder{color:var(--dim)}
     </div>
   </div>
 
-  <!-- REAL SENSOR + ONLINE SYSTEM DATA -->
   <div class="telemetry-split" style="margin-top:8px">
     <div class="telemetry-panel panel">
       <div class="ph">REAL SENSOR DATA — NO FAKE VALUES</div>
@@ -1481,9 +1193,8 @@ input::placeholder{color:var(--dim)}
     </div>
   </div>
 
-  <!-- Lower Row -->
   <div class="lower-row">
-    <!-- Sensor Health -->
+    
     <div class="panel">
       <div class="ph">SENSOR HEALTH</div>
       <div class="sh-row"><span class="sh-ico">🌡️</span><span class="sh-name">DHT22</span><div class="sh-dot ERROR" id="sd-dht"></div><span class="sh-status ERROR" id="ss-dht">OFFLINE</span><div class="sh-conf"><div class="cl">Confidence</div><div class="cv" id="sc-dht">--%</div></div></div>
@@ -1491,14 +1202,14 @@ input::placeholder{color:var(--dim)}
       <div class="sh-row"><span class="sh-ico">☀️</span><span class="sh-name">BH1750</span><div class="sh-dot ERROR" id="sd-bh"></div><span class="sh-status ERROR" id="ss-bh">OFFLINE</span><div class="sh-conf"><div class="cl">Confidence</div><div class="cv" id="sc-bh">--%</div></div></div>
       <div class="sh-row"><span class="sh-ico">🌡️</span><span class="sh-name">DS18B20</span><div class="sh-dot ERROR" id="sd-ds"></div><span class="sh-status ERROR" id="ss-ds">OFFLINE</span><div class="sh-conf"><div class="cl">Confidence</div><div class="cv" id="sc-ds">--%</div></div></div>
     </div>
-    <!-- Weather Overview -->
+    
     <div class="panel">
       <div class="ph">WEATHER OVERVIEW</div>
       <div class="wx-big">
         <div class="wx-icon" id="wx-ico">⛅</div>
         <div class="wx-main">
           <div class="wxcond" id="wx-cond">--</div>
-          <div class="wxsub" id="wx-sub">Waiting for sensor data...</div>
+          <div class="wxsub" id="wx-sub">Waiting for data...</div>
         </div>
       </div>
       <div class="wx-grid">
@@ -1508,7 +1219,7 @@ input::placeholder{color:var(--dim)}
         <div class="wxcell"><div class="wl">VISIBILITY</div><div class="wv" id="wx-v">--</div></div>
       </div>
     </div>
-    <!-- System Monitor -->
+    
     <div class="panel">
       <div class="ph">SYSTEM MONITOR</div>
       <div class="gauges-row">
@@ -1519,7 +1230,7 @@ input::placeholder{color:var(--dim)}
       <div class="prog-row"><div class="prog-lbl">Heap Free</div><div class="prog-bar"><div class="prog-fill gr" id="pr-h" style="width:0%"></div></div><div class="prog-val" id="pv-h">-- KB</div></div>
       <div class="prog-row"><div class="prog-lbl">Flash Used</div><div class="prog-bar"><div class="prog-fill am" id="pr-f" style="width:0%"></div></div><div class="prog-val" id="pv-f">--%</div></div>
       <div class="prog-row"><div class="prog-lbl">WiFi Signal</div><div class="prog-bar"><div class="prog-fill pu" id="pr-w" style="width:0%"></div></div><div class="prog-val" id="pv-w">-- dBm</div></div>
-      <!-- Hidden quick-stat IDs used by live WS handler and demo loader -->
+      
       <div style="display:none">
         <span id="sh"></span><span id="sf"></span><span id="sr"></span>
         <span id="si"></span><span id="sup"></span><span id="ss"></span>
@@ -1529,7 +1240,6 @@ input::placeholder{color:var(--dim)}
   </div>
 </div>
 
-<!-- LIVE DATA PAGE -->
 <div id="pg-livedata" class="pg"><div class="page-wrap">
   <div class="sect">LIVE SENSOR DATA</div>
   <div class="g3">
@@ -1560,7 +1270,6 @@ input::placeholder{color:var(--dim)}
   </div>
 </div></div>
 
-<!-- GRAPHS PAGE -->
 <div id="pg-graphs" class="pg"><div class="page-wrap">
   <div class="sect">HISTORICAL GRAPHS</div>
   <div class="g3">
@@ -1575,7 +1284,6 @@ input::placeholder{color:var(--dim)}
   </div>
 </div></div>
 
-<!-- SENSORS PAGE -->
 <div id="pg-sensors" class="pg"><div class="page-wrap">
   <div class="sect">SENSOR DIAGNOSTICS</div>
   <div class="g2">
@@ -1610,7 +1318,6 @@ input::placeholder{color:var(--dim)}
   </div>
 </div></div>
 
-<!-- LOCATION CONFIGURATION PAGE -->
 <div id="pg-location" class="pg"><div class="page-wrap">
   <div class="sect">PERSISTENT WEATHER LOCATION</div>
   <p style="font-size:12px;color:var(--dim);margin-bottom:12px;font-weight:600">
@@ -1635,7 +1342,6 @@ input::placeholder{color:var(--dim)}
   </div>
 </div></div>
 
-<!-- WEATHER SEARCH PAGE -->
 <div id="pg-wxsearch" class="pg"><div class="page-wrap">
   <div class="sect">GLOBAL WEATHER SEARCH — OLED OVERRIDE</div>
   <p style="font-size:12px;color:var(--dim);margin-bottom:12px;font-weight:600">Search any city — weather data will display on OLED for 60 seconds.</p>
@@ -1667,7 +1373,6 @@ input::placeholder{color:var(--dim)}
   </div>
 </div></div>
 
-<!-- WORLD TIME PAGE -->
 <div id="pg-wtime" class="pg"><div class="page-wrap">
   <div class="sect">WORLD TIME LOOKUP</div>
   <p style="font-size:12px;color:var(--dim);margin-bottom:12px;font-weight:600">Search a city to show its local time on the OLED display for 60 seconds.</p>
@@ -1683,13 +1388,11 @@ input::placeholder{color:var(--dim)}
   </div>
 </div></div>
 
-<!-- EVENT LOG PAGE -->
 <div id="pg-evtlog" class="pg"><div class="page-wrap">
   <div class="sect">COMPLETE EVENT LOG</div>
   <div class="evlog-page" id="evlog-full"></div>
 </div></div>
 
-<!-- SETTINGS PAGE -->
 <div id="pg-settings" class="pg"><div class="page-wrap">
   <div class="g2">
     <div>
@@ -1711,7 +1414,6 @@ input::placeholder{color:var(--dim)}
   </div>
 </div>
 
-    <!-- AP Configuration + Connection Management (added for offline mode) -->
     <div class="g2" style="margin-top:10px">
       <div>
         <div class="sect">ACCESS POINT CONFIGURATION</div>
@@ -1737,7 +1439,6 @@ input::placeholder{color:var(--dim)}
     </div>
   </div></div>
 
-<!-- SYSTEM INFO PAGE -->
 <div id="pg-sysinfo" class="pg"><div class="page-wrap">
   <div class="sect">DEVICE INFORMATION</div>
   <div class="mpanel">
@@ -1762,9 +1463,8 @@ input::placeholder{color:var(--dim)}
 
 </main>
 
-<!-- ═══ RIGHT PANEL ═══ -->
 <aside class="rpanel">
-  <!-- Upcoming Events -->
+  
   <div class="rp-section">
     <div class="rp-title">UPCOMING EVENTS</div>
     <div id="rp-upcoming">
@@ -1774,13 +1474,13 @@ input::placeholder{color:var(--dim)}
       <div class="ev-item"><span class="ev-time" id="ev-t4">--:-- --</span><span class="ev-msg">Health Check</span></div>
     </div>
   </div>
-  <!-- Latest Events -->
+  
   <div class="evlog-scroll" id="rp-evscroll">
     <div class="rp-title">LATEST EVENTS</div>
     <div id="rp-evlog"></div>
     <button class="view-btn" onclick="nav(document.querySelector('[data-pg=evtlog]'),'evtlog')">VIEW ALL LOGS</button>
   </div>
-  <!-- Quick Actions -->
+  
   <div class="rp-section">
     <div class="rp-title">QUICK ACTIONS</div>
     <div class="qa-grid">
@@ -1792,17 +1492,15 @@ input::placeholder{color:var(--dim)}
   </div>
 </aside>
 
-<!-- ═══ BOTTOM BAR ═══ -->
 <footer class="botbar">
   <span><b>ADITYA</b> WEATHER STATION &nbsp;•&nbsp; Cyberpunk Edition &nbsp;•&nbsp; Live Data &nbsp;•&nbsp; Secure &nbsp;•&nbsp; Reliable &nbsp;•&nbsp; 24/7 Monitoring</span>
   <span>All Rights Reserved</span>
 </footer>
 
-</div><!-- shell -->
+</div>
 
 <script>
 
-// Matrix rain background
 (function(){
   var c=document.getElementById('cnv-bg');
   if(!c)return;
@@ -1825,8 +1523,6 @@ input::placeholder{color:var(--dim)}
   },65);
 })();
 
-
-// ── NAV ──────────────────────────────────────────────────────────────
 function nav(el, pgId) {
   document.querySelectorAll('.sb-item').forEach(b => b.classList.remove('on'));
   if (el) el.classList.add('on');
@@ -1838,8 +1534,6 @@ function nav(el, pgId) {
   if (sb && window.innerWidth<=420) sb.classList.remove('mob-open');
 }
 
-// ── LIVE DATA FEED WAVEFORM ───────────────────────────────────────────
-// This graph uses only real sensor samples. No Math.random() synthetic data.
 var feedData=[];
 function pushFeedSample(v){
   if(v===undefined||v===null||isNaN(+v)) return;
@@ -1865,7 +1559,6 @@ function pushFeedSample(v){
   draw();
 })();
 
-// ── CLOCK ─────────────────────────────────────────────────────────────
 var months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 function updateClock(){
   var n = new Date();
@@ -1874,7 +1567,7 @@ function updateClock(){
   var timeStr = pad(hh)+':'+pad(m)+':'+pad(s)+' '+ampm;
   var dateStr = pad(n.getDate())+' '+months[n.getMonth()]+' '+n.getFullYear();
   setText('t-time', timeStr); setText('t-date', dateStr);
-  // Update upcoming events
+  
   var base = n.getTime();
   [1,5,60,65].forEach(function(min,i){
     var d = new Date(base + min*60000);
@@ -1884,7 +1577,6 @@ function updateClock(){
 }
 setInterval(updateClock, 1000); updateClock();
 
-// ── SPARKLINES ────────────────────────────────────────────────────────
 var BUF = 80;
 function mkSpark(id, color) {
   var c = document.getElementById(id); if (!c) return {push:function(){}};
@@ -1900,12 +1592,11 @@ function mkSpark(id, color) {
     ctx.beginPath();
     buf.forEach((p,i)=>{ var x=i/(BUF-1)*W, y=H-(p-mn)/(mx-mn)*(H-3)-1.5; if(!i) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
     ctx.strokeStyle=color; ctx.lineWidth=2*devicePixelRatio; ctx.shadowBlur=8; ctx.shadowColor=color; ctx.stroke(); ctx.shadowBlur=0;
-    // dot at last point
+    
     if(buf.length>1){var lv=buf[buf.length-1],mn2=Math.min(...buf),mx2=Math.max(...buf);if(mn2===mx2){mn2-=1;mx2+=1;}var lx=(BUF-1)/(BUF-1)*W,ly=H-(lv-mn2)/(mx2-mn2)*(H-3)-1.5;ctx.beginPath();ctx.arc(W-2,ly,2.5*devicePixelRatio,0,7);ctx.fillStyle=color;ctx.shadowBlur=6;ctx.shadowColor=color;ctx.fill();ctx.shadowBlur=0;}
   }};
 }
 
-// ── FULL CHARTS ───────────────────────────────────────────────────────
 function mkChart(id, color) {
   var c = document.getElementById(id); if (!c) return {push:function(){}};
   var ctx = c.getContext('2d'), buf = [];
@@ -1918,11 +1609,10 @@ function mkChart(id, color) {
     var W=c.width, H=c.height, pd=8, mn=Math.min(...buf), mx=Math.max(...buf);
     if (mn===mx){mn-=1;mx+=1;}
     ctx.clearRect(0,0,W,H);
-    // grid lines
+    
     ctx.strokeStyle='rgba(0,212,255,.08)'; ctx.lineWidth=1;
     for(var g=1;g<5;g++){ var gy=H*g/5; ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(W,gy); ctx.stroke(); }
-    // fill
-    // gradient fill under curve
+    
     ctx.beginPath();
     var pts=[];
     buf.forEach((p,i)=>{ var x=i/(buf.length-1)*(W-pd)+pd/2, y=H-pd-(p-mn)/(mx-mn)*(H-2*pd); pts.push({x,y}); if(!i) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
@@ -1931,7 +1621,7 @@ function mkChart(id, color) {
     grad.addColorStop(0,color.replace(')',', 0.2)').replace('rgb','rgba'));
     grad.addColorStop(1,color.replace(')',', 0.01)').replace('rgb','rgba'));
     ctx.fillStyle=grad; ctx.fill();
-    // line with double-pass glow
+    
     ctx.beginPath();
     buf.forEach((p,i)=>{ var x=i/(buf.length-1)*(W-pd)+pd/2, y=H-pd-(p-mn)/(mx-mn)*(H-2*pd); if(!i) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
     ctx.strokeStyle=color; ctx.lineWidth=5*devicePixelRatio; ctx.globalAlpha=0.15; ctx.shadowBlur=0; ctx.stroke();
@@ -1939,14 +1629,13 @@ function mkChart(id, color) {
     ctx.beginPath();
     buf.forEach((p,i)=>{ var x=i/(buf.length-1)*(W-pd)+pd/2, y=H-pd-(p-mn)/(mx-mn)*(H-2*pd); if(!i) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
     ctx.strokeStyle=color; ctx.lineWidth=2*devicePixelRatio; ctx.shadowBlur=16; ctx.shadowColor=color; ctx.stroke(); ctx.shadowBlur=0;
-    // min/max
+    
     ctx.fillStyle=color; ctx.font=(8*devicePixelRatio)+'px monospace'; ctx.textAlign='left';
     ctx.fillText(mx.toFixed(1), 2, 10*devicePixelRatio);
     ctx.fillText(mn.toFixed(1), 2, H-2);
   }};
 }
 
-// ── ARC GAUGE ─────────────────────────────────────────────────────────
 function drawGauge(id, pct, color, label, unit) {
   var c = document.getElementById(id); if (!c) return;
   var ctx = c.getContext('2d'), W=c.width, H=c.height, cx=W/2, cy=H/2, r=cx-7;
@@ -1961,14 +1650,12 @@ function drawGauge(id, pct, color, label, unit) {
   ctx.font=(9)+'px Rajdhani,sans-serif'; ctx.fillStyle='#4a9a80'; ctx.fillText(unit||'', cx, cy+9);
 }
 
-// Init charts
 var spT=mkSpark('sp-temp','#00ff88'), spH=mkSpark('sp-hum','#a855f7'), spP=mkSpark('sp-pres','#f59e0b');
 var spL=mkSpark('sp-lux','#f59e0b'), spD=mkSpark('sp-ds','#00ff88'), spR=mkSpark('sp-rain','#00d4ff');
 var gcT=mkChart('gv-t','#00ff88'), gcH=mkChart('gv-h','#a855f7'), gcP=mkChart('gv-p','#f59e0b');
 var ggT=mkChart('gg-t','#00ff88'), ggH=mkChart('gg-h','#a855f7'), ggP=mkChart('gg-p','#f59e0b');
 var ggL=mkChart('gg-l','#f59e0b'), ggD=mkChart('gg-d','#00ff88'), ggR=mkChart('gg-r','#00d4ff');
 
-// ── HELPERS ───────────────────────────────────────────────────────────
 function setText(id,v){ var e=document.getElementById(id); if(e&&v!==undefined&&v!==null) e.textContent=v; }
 function flash(id,v){ var e=document.getElementById(id); if(!e) return; var s=String(v); if(e.textContent===s) return; e.textContent=s; e.classList.remove('flash'); void e.offsetWidth; e.classList.add('flash'); }
 function fmt(v,d){ return(v===undefined||v===null||isNaN(+v))?'--':(+v).toFixed(d); }
@@ -1981,7 +1668,6 @@ function setBadge(id,ok,h){ var e=document.getElementById(id); if(!e) return; va
 function setSH(pfx,h,c){ var dot=document.getElementById('sd-'+pfx); var st=document.getElementById('ss-'+pfx); var cv=document.getElementById('sc-'+pfx); if(dot){dot.className='sh-dot '+(h||'ERROR');} if(st){st.textContent=h||'--';st.className='sh-status '+(h||'ERROR');} if(cv) cv.textContent=(c!==undefined?c:'--')+'%'; }
 function esc(s){ var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
-// ── EVENT LOG ─────────────────────────────────────────────────────────
 var allEvts = [];
 var evFull = document.getElementById('evlog-full');
 var rpEvLog = document.getElementById('rp-evlog');
@@ -2009,13 +1695,6 @@ function renderEvLog() {
   }).join('');
 }
 
-// ── SESSION (V10 modern auth) ────────────────────────────────────────
-// Loading this page already required a Basic Auth login (server-enforced on
-// "/"), so the browser has the credentials cached. ensureSession() spends
-// that cached login once to mint a short-lived Bearer token; apiFetch() then
-// uses the token for everything else, so the password itself doesn't ride
-// along on every single API call the way raw Basic Auth would. Falls back
-// to Basic Auth silently (no re-prompt — still cached) if a token expires.
 var authToken = sessionStorage.getItem('wsToken') || '';
 function ensureSession() {
   if (authToken) return Promise.resolve();
@@ -2030,7 +1709,7 @@ function apiFetch(url, opts) {
   if (authToken) o.headers['Authorization'] = 'Bearer ' + authToken;
   return fetch(url, o).then(r => {
     if (r.status !== 401 || !authToken) return r;
-    authToken=''; sessionStorage.removeItem('wsToken'); // expired — drop it and retry on cached Basic Auth
+    authToken=''; sessionStorage.removeItem('wsToken');
     return fetch(url, opts);
   });
 }
@@ -2038,7 +1717,6 @@ ensureSession().then(()=>{
   apiFetch('/api/events').then(r=>r.ok?r.json():null).then(d=>{ if(d&&d.events) d.events.forEach(e=>addEvt(e.level,e.msg,e.ms)); }).catch(()=>{});
 });
 
-// ── WEBSOCKET ─────────────────────────────────────────────────────────
 var ws, wsr=1000;
 function conn() {
   var pr = location.protocol==='https:'?'wss:':'ws:';
@@ -2058,16 +1736,27 @@ function conn() {
     var d; try{d=JSON.parse(e.data);}catch(ex){return;}
     if (d.type==='event'){ addEvt(d.level,d.msg,d.ms); return; }
 
-    pushFeedSample(d.temp);
+    var sw = (d.saved_weather && d.saved_weather.valid) ? d.saved_weather : null;
+    var tempFromApi = !d.dht_ok && !!sw;
+    var humFromApi  = !d.dht_ok && !!sw;
+    var presFromApi = !d.bme_ok && !!sw;
+    var effTemp  = d.dht_ok ? d.temp       : (sw ? sw.temp       : null);
+    var effHum   = d.dht_ok ? d.humidity   : (sw ? sw.humidity   : null);
+    var effPres  = d.bme_ok ? d.pressure   : (sw ? sw.pressure   : null);
+    var effFeels = d.dht_ok ? d.heat_index : (sw ? sw.feels_like : null);
 
-    // Sensor cards
-    flash('v-temp', fmt(d.temp,1));
-    flash('v-hum', fmt(d.humidity,0));
-    flash('v-pres', fmt(d.pressure,1));
+    pushFeedSample(effTemp);
+
+    flash('v-temp', fmt(effTemp,1));
+    flash('v-hum', fmt(effHum,0));
+    flash('v-pres', fmt(effPres,1));
+    setText('src-temp', tempFromApi ? '(API)' : '');
+    setText('src-hum', humFromApi ? '(API)' : '');
+    setText('src-pres', presFromApi ? '(API)' : '');
     flash('v-lux', d.lux==null?'--':(d.lux>=1000?(d.lux/1000).toFixed(1)+'k':Math.round(d.lux)));
     flash('v-ds', fmt(d.ds18_temp,1));
     flash('v-rain', d.rain_prob==null?'--':Math.round(d.rain_prob));
-    setText('v-hi', fmt(d.heat_index,1));
+    setText('v-hi', fmt(effFeels,1));
     setText('v-dew', fmt(d.dew_point,1));
     setText('v-alt', fmt(d.altitude,0));
     setText('v-luxl', d.lux==null?'--':lxLvl(d.lux));
@@ -2076,21 +1765,18 @@ function conn() {
     var tEl=document.getElementById('v-trend');
     if(tEl){var tr=d.pressure_trend; tEl.textContent=tr==null?'--':(tr>0.1?'▲':tr<-0.1?'▼':'~'); tEl.style.color=tr==null?'var(--dim)':(tr>0.1?'var(--c1)':tr<-0.1?'var(--c5)':'var(--c4)');}
 
-    // Badges & health
     setBadge('bd-dht',d.dht_ok,d.dht_health); setBadge('bd-bme',d.bme_ok,d.bme_health);
     setBadge('bd-bh',d.bh_ok,d.bh_health); setBadge('bd-ds',d.ds_ok,d.ds_health);
     setSH('dht',d.dht_health,d.dht_confidence); setSH('bme',d.bme_health,d.bme_confidence);
     setSH('bh',d.bh_health,d.bh_confidence); setSH('ds',d.ds_health,d.ds_confidence);
 
-    // Charts
-    spT.push(d.temp); spH.push(d.humidity); spP.push(d.pressure);
+    spT.push(effTemp); spH.push(effHum); spP.push(effPres);
     spL.push(d.lux); spD.push(d.ds18_temp); spR.push(d.rain_prob);
-    gcT.push(d.temp); gcH.push(d.humidity); gcP.push(d.pressure);
-    ggT.push(d.temp); ggH.push(d.humidity); ggP.push(d.pressure);
+    gcT.push(effTemp); gcH.push(effHum); gcP.push(effPres);
+    ggT.push(effTemp); ggH.push(effHum); ggP.push(effPres);
     ggL.push(d.lux); ggD.push(d.ds18_temp); ggR.push(d.rain_prob);
-    setText('gc-t', fmt(d.temp,1)+'°C'); setText('gc-h', fmt(d.humidity,0)+'%'); setText('gc-p', fmt(d.pressure,1)+' hPa');
+    setText('gc-t', fmt(effTemp,1)+'°C'); setText('gc-h', fmt(effHum,0)+'%'); setText('gc-p', fmt(effPres,1)+' hPa');
 
-    // Complete real sensor telemetry
     setText('rt-dht-t', d.dht_ok ? fmt(d.temp,1)+' °C' : 'OFFLINE');
     setText('rt-dht-h', d.dht_ok ? fmt(d.humidity,1)+' %' : 'OFFLINE');
     setText('rt-bme-t', d.bme_ok ? fmt(d.bme_temp,1)+' °C' : 'OFFLINE');
@@ -2115,7 +1801,6 @@ function conn() {
     setText('rt-retries', (d.dht_retries||0)+' / '+(d.bme_retries||0)+' / '+(d.bh_retries||0)+' / '+(d.ds_retries||0));
     setText('rt-errs', (d.dht_errors||0)+' / '+(d.bme_errors||0)+' / '+(d.bh_errors||0)+' / '+(d.ds_errors||0));
 
-    // Complete online/system telemetry
     setText('rt-wifi', d.wifi_connected ? 'ONLINE' : 'OFFLINE');
     setText('rt-ssid', d.ssid || (d.wifi_connected ? '--' : 'OFFLINE'));
     setText('rt-ip', d.sta_ip || 'OFFLINE');
@@ -2140,7 +1825,6 @@ function conn() {
     setText('rt-ws', 'LIVE');
     setText('rt-ntp', d.time_valid ? 'SYNCED / VALID' : 'NOT SYNCED');
 
-    // Persistent real online weather
     if(d.saved_weather){
       var sw=d.saved_weather;
       setText('rt-location', sw.valid ? ((sw.city||'--')+(sw.country?', '+sw.country:'')) : 'LOCATION SAVED — WAITING FOR API');
@@ -2158,14 +1842,16 @@ function conn() {
       setText('rt-location','NO LOCATION SET');
     }
 
-    // Weather overview
-    setText('wx-ico', d.weather==null?'--':wxIco(d.weather));
-    setText('wx-cond', d.weather==null?'--':d.weather);
-    setText('wx-sub', d.dht_ok ? ('Humidity '+fmt(d.humidity,0)+'%, Dew Point '+fmt(d.dew_point,1)+'°C') : 'No local sensor data');
-    setText('wx-t', fmt(d.temp,1)+'°C'); setText('wx-h', fmt(d.humidity,0)+'%');
-    setText('wx-w', '--'); setText('wx-v', '--');
+    var wxCond = (d.weather && d.weather.length) ? d.weather : (sw ? sw.description : null);
+    setText('wx-ico', wxCond ? wxIco(wxCond) : '⛅');
+    setText('wx-cond', wxCond || '--');
+    if (d.dht_ok) setText('wx-sub', 'Humidity '+fmt(d.humidity,0)+'%, Dew Point '+fmt(d.dew_point,1)+'°C');
+    else if (sw) setText('wx-sub', 'Online weather · '+(sw.city||'--'));
+    else setText('wx-sub', 'No local sensor data');
+    setText('wx-t', fmt(effTemp,1)+'°C'); setText('wx-h', fmt(effHum,0)+'%');
+    setText('wx-w', sw ? fmt(sw.wind,1)+' m/s' : '--');
+    setText('wx-v', (sw && sw.visibility_m!=null && sw.visibility_m>=0) ? fmt(sw.visibility_m/1000,1)+' km' : '--');
 
-    // System monitor
     var fh=d.free_heap||0, fhKb=Math.round(fh/1024);
     var fhPct=Math.min(100,Math.round(fh/300000*100));
     var fsPct=d.fs_total?Math.round(d.fs_used/d.fs_total*100):0;
@@ -2177,7 +1863,6 @@ function conn() {
     var prf=document.getElementById('pr-f'); if(prf) prf.style.width=fsPct+'%'; setText('pv-f',fsPct+'%');
     var prw=document.getElementById('pr-w'); if(prw) prw.style.width=rssiPct+'%'; setText('pv-w',(d.rssi||'--')+' dBm');
 
-    // Topbar
     var fmtUptime = fmtUp(d.uptime_s||0);
     setText('t-up', fmtUptime); setText('sup', fmtUptime);
     setText('sb-ip', d.wifi_connected ? (d.sta_ip||d.ip||'--') : (d.ap_ip||d.ip||'--'));
@@ -2190,25 +1875,23 @@ function conn() {
     setText('ss', d.snapshot_seq||'--');
     setText('sfs', d.fs_total?Math.round((d.fs_used||0)/1024)+'/'+Math.round(d.fs_total/1024)+' KB':'--');
     var tsws=document.getElementById('ts-ws');if(tsws){tsws.textContent='● LIVE';tsws.style.color='var(--c1)';}
-    // Safe mode banner
+    
     if(d.safe_mode){
       var ob=document.getElementById('offline-badge');
       if(ob){ob.style.display='block';ob.textContent='⚠ SAFE MODE ACTIVE — '+((d.safe_mode_reason)||'Recovery mode');}
     }
 
-    // Live data page
-    setText('ld-t',fmt(d.temp,1)+'°C'); setText('ld-h',fmt(d.humidity,0)+'%');
-    setText('ld-hi',fmt(d.heat_index,1)+'°C'); setText('ld-dp',fmt(d.dew_point,1)+'°C');
-    setText('ld-p',fmt(d.pressure,1)+' hPa'); setText('ld-a',fmt(d.altitude,0)+' m');
+    setText('ld-t',fmt(effTemp,1)+'°C'); setText('ld-h',fmt(effHum,0)+'%');
+    setText('ld-hi',fmt(effFeels,1)+'°C'); setText('ld-dp',fmt(d.dew_point,1)+'°C');
+    setText('ld-p',fmt(effPres,1)+' hPa'); setText('ld-a',fmt(d.altitude,0)+' m');
     setText('ld-tr',(d.pressure_trend>0?'+':'')+fmt(d.pressure_trend,2)+' hPa/m');
     setText('ld-l',fmt(d.lux,0)+' lx'); setText('ld-d1',fmt(d.ds18_temp,1)+'°C');
     setText('ld-d2',d.ds18_temp_2==null?'--':fmt(d.ds18_temp_2,1)+'°C');
     setText('ld-mm',fmt(d.ds18_min,1)+'/'+fmt(d.ds18_max,1));
-    setText('ld-r',fmt(d.rain_prob,0)+'%'); setText('ld-w',d.weather||'--');
+    setText('ld-r',fmt(d.rain_prob,0)+'%'); setText('ld-w',wxCond||'--');
     if(d.uptime_s!==undefined) setText('ld-up',fmtUp(d.uptime_s));
     setText('ld-sn',d.snapshot_seq||'--'); setText('ld-fh',fhKb+' KB'); setText('ld-fg',(d.heap_frag_pct||0)+'%');
 
-    // Sensors page
     var smap={dht:['sg-dh','sg-dc','sg-dr','sg-de'],bme:['sg-bh','sg-bc','sg-br','sg-be'],bh:['sg-lh','sg-lc','sg-lr','sg-le'],ds:['sg-dsh','sg-dsc','sg-dsr','sg-dse']};
     ['dht','bme','bh','ds'].forEach(function(n){
       var ids=smap[n]; var hth=d[n+'_health']||'--'; var conf=d[n==='bh'?'bh_confidence':n+'_confidence']||0;
@@ -2218,21 +1901,18 @@ function conn() {
       setText(ids[1],conf+'%'); setText(ids[2],ret); setText(ids[3],err);
     });
 
-    // Offline mode indicator update via WS
     var ob=document.getElementById('offline-badge');
     if(ob&&d.offline_mode!==undefined){
       ob.style.display=d.offline_mode?'block':'none';
       if(d.offline_mode) ob.textContent='⚠ OFFLINE MODE — Connect to WeatherStation-Setup → '+(d.ap_ip||'192.168.4.1');
     }
 
-    // Override
     document.getElementById('wx-res').style.display=d.override_active?'block':'none';
     setText('wt-a',d.override_active?'YES':'NO');
   };
 }
 conn();
 
-// ── OVERRIDE POLLING ──────────────────────────────────────────────────
 setInterval(function(){
   apiFetch('/api/override-status').then(r=>r.json()).then(function(d){
     if(d.active){
@@ -2248,7 +1928,6 @@ setInterval(function(){
   }).catch(()=>{});
 },5000);
 
-// ── ACTIONS ───────────────────────────────────────────────────────────
 function loadLocation(){
   apiFetch('/api/location').then(r=>r.json()).then(d=>{
     document.getElementById('loc-city').value=d.city||'';
@@ -2353,7 +2032,7 @@ function loadWifiStatus(){
     setText('cm-ssid',d.ssid||'--'); setText('cm-ip',d.ip||'--');
     setText('cm-rssi',d.rssi?d.rssi+' dBm':'--'); setText('cm-apip',d.ap_ip||'192.168.4.1');
     setText('cm-sta',d.ap_stations!==undefined?d.ap_stations+' client(s)':'--');
-    // Update topbar offline indicator
+    
     var ob=document.getElementById('offline-badge');
     if(ob) ob.style.display=d.offline_mode?'inline-block':'none';
     if(ob) ob.textContent='⚠ OFFLINE MODE — Connect to '+d.ap_ssid+' → '+d.ap_ip;
@@ -2370,9 +2049,7 @@ setTimeout(loadSys, 2000);
 </script>
 </body>
 </html>)WSDASH";
-// ═══════════════════════════════════════════════════════════════════════════════
-//   PREFERENCES
-// ═══════════════════════════════════════════════════════════════════════════════
+
 void loadConfig() {
   prefs.begin(PREF_NAMESPACE, true);
   cfg.tzOffsetSec = prefs.getInt(PREF_TZ_OFFSET, 19800);
@@ -2401,22 +2078,18 @@ void saveConfig() {
   Serial.println(F("[Config] Saved."));
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   HIDDEN WIFI
-// ═══════════════════════════════════════════════════════════════════════════════
 bool connectHiddenWifi(const char* ssid, const char* password) {
   Serial.printf("[WiFi] Connecting to WiFi SSID: %s\n", ssid);
 
-  // Do not power Wi-Fi off here: the local dashboard AP must remain available
-  // while the STA interface attempts to reach the configured router.
   WiFi.mode(WIFI_AP_STA);
   WiFi.disconnect(false);
   delay(100);
-  // Normal STA connection supports both visible and hidden home-router SSIDs.
+  
   WiFi.begin(ssid, password);
 
   uint8_t tries = 0;
   while (WiFi.status() != WL_CONNECTED && tries < 30) {
+    esp_task_wdt_reset();
     delay(500);
     Serial.print('.');
     tries++;
@@ -2435,20 +2108,11 @@ bool connectHiddenWifi(const char* ssid, const char* password) {
   return false;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   UTILITIES
-// ═══════════════════════════════════════════════════════════════════════════════
 void formatUtcOffset(long offsetSec, char* out, size_t outLen) {
   char sign=(offsetSec<0)?'-':'+'; long absSec=labs(offsetSec);
   snprintf(out, outLen, "UTC%c%02d:%02d", sign, (int)(absSec/3600), (int)((absSec%3600)/60));
 }
 
-// V9 NEW: minimal percent-encoding for query-string values. Handles the
-// common case (spaces, commas already handled separately, unicode bytes
-// passed through as %XX) so multi-word city names ("New York") and accented
-// names no longer silently break the query string — and doubles as input
-// sanitization since anything not alphanumeric gets escaped rather than
-// inserted raw into the URL.
 static void urlEncodeAppend(char* out, size_t outLen, size_t& pos, const char* in) {
   static const char hex[] = "0123456789ABCDEF";
   for (const unsigned char* p = (const unsigned char*)in; *p && pos + 4 < outLen; p++) {
@@ -2486,6 +2150,7 @@ bool fetchWeatherRaw(const char* city, const char* countryCode, PersistentWeathe
   tmp.tempC=doc["main"]["temp"]|NAN; tmp.feelsLike=doc["main"]["feels_like"]|NAN;
   tmp.humidity=doc["main"]["humidity"]|NAN; tmp.pressure=doc["main"]["pressure"]|NAN;
   tmp.windSpeed=doc["wind"]["speed"]|NAN; tmp.clouds=doc["clouds"]["all"]|0;
+  tmp.visibilityM=doc["visibility"]|-1;
   long tz=doc["timezone"]|cfg.tzOffsetSec;
   time_t utcNow; time(&utcNow); time_t cityLocal=utcNow+(time_t)tz;
   struct tm ctm; gmtime_r(&cityLocal,&ctm);
@@ -2526,9 +2191,6 @@ bool fetchWeatherAndTime(const char* city, const char* countryCode) {
   return true;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   METEOROLOGICAL COMPUTATIONS
-// ═══════════════════════════════════════════════════════════════════════════════
 float computeHeatIndex(float tempC, float rh) {
   float T=tempC*9.0f/5.0f+32.0f, HI;
   if (T<80.0f) { HI=0.5f*(T+61.0f+(T-68.0f)*1.2f+rh*0.094f); }
@@ -2572,9 +2234,6 @@ const char* weatherClassification(float prob) {
   if (prob>=35.0f) return "Cloudy";      if (prob>=20.0f) return "Humid"; return "Clear";
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   SENSOR PIPELINE HELPERS
-// ═══════════════════════════════════════════════════════════════════════════════
 float medianOf(float* arr, uint8_t n) {
   float tmp[8]; for (uint8_t i=0;i<n;i++) tmp[i]=arr[i];
   for (uint8_t i=1;i<n;i++) { float key=tmp[i]; int8_t j=i-1; while(j>=0&&tmp[j]>key){tmp[j+1]=tmp[j];j--;} tmp[j+1]=key; }
@@ -2596,9 +2255,6 @@ SensorHealth healthFromFails(uint16_t consecFails, bool hasLastGood, bool gotFre
   return HEALTH_WARNING;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   EVENT LOG
-// ═══════════════════════════════════════════════════════════════════════════════
 void logEvent(EventLevel level, const char* fmt, ...) {
   char buf[64];
   va_list args; va_start(args,fmt); vsnprintf(buf,sizeof(buf),fmt,args); va_end(args);
@@ -2612,16 +2268,13 @@ void logEvent(EventLevel level, const char* fmt, ...) {
   }
   const char* tag=(level==EVT_ERROR)?"ERROR":(level==EVT_WARN?"WARN":"INFO");
   Serial.printf("[%s] %s\n",tag,buf);
-  // V7: wsTextAll() now mutex-protected — safe to call from any task
+  
   StaticJsonDocument<160> doc;
   doc["type"]="event"; doc["level"]=tag; doc["msg"]=buf; doc["ms"]=millis();
   String out; serializeJson(doc,out);
   wsTextAll(out);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   SAFE RESTART
-// ═══════════════════════════════════════════════════════════════════════════════
 void safeRestart(const char* reason) {
   Serial.printf("[FATAL] %s — restarting in 5s...\n",reason);
   logEvent(EVT_ERROR,"FATAL: %s — restarting",reason);
@@ -2634,9 +2287,6 @@ void safeRestart(const char* reason) {
   delay(5000); esp_restart();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   OLED HELPERS
-// ═══════════════════════════════════════════════════════════════════════════════
 void printCentered(const char* text, int16_t y, uint8_t sz) {
   display.setTextSize(sz);
   int16_t x1,y1; uint16_t w,h;
@@ -2678,7 +2328,7 @@ void drawPageDots(Page p) {
 }
 
 void showSplash(const char* line1, const char* line2) {
-  if (!oledOK) return;  // V8 FIX: no-op gracefully when display isn't present
+  if (!oledOK) return;
   display.clearDisplay(); display.setTextColor(SSD1306_WHITE);
   display.drawRect(0,0,SCREEN_W,SCREEN_H,SSD1306_WHITE);
   display.drawRect(2,2,SCREEN_W-4,SCREEN_H-4,SSD1306_WHITE);
@@ -2690,7 +2340,7 @@ void showSplash(const char* line1, const char* line2) {
 }
 
 void bootProgressStep(const char* label, uint8_t pct) {
-  if (!oledOK) return;  // V8 FIX
+  if (!oledOK) return;
   display.clearDisplay();
   display.drawRect(0,0,SCREEN_W,SCREEN_H,SSD1306_WHITE);
   display.drawRect(2,2,SCREEN_W-4,SCREEN_H-4,SSD1306_WHITE);
@@ -2698,7 +2348,7 @@ void bootProgressStep(const char* label, uint8_t pct) {
   display.drawLine(10,17,SCREEN_W-10,17,SSD1306_WHITE);
   printCentered(label,27,1);
   display.drawRect(10,42,108,10,SSD1306_WHITE);
-  // V7 FIX: inner width is 106px, not 100 — bar now fully fills
+  
   uint8_t fillW=(uint8_t)((106UL*pct)/100UL);
   display.fillRect(12,44,fillW,6,SSD1306_WHITE);
   char vbuf[12]; snprintf(vbuf,sizeof(vbuf),"FW v%s",FIRMWARE_VERSION);
@@ -2706,7 +2356,7 @@ void bootProgressStep(const char* label, uint8_t pct) {
 }
 
 void showBootSequence() {
-  if (!oledOK) return;  // V8 FIX
+  if (!oledOK) return;
   const char* finalText="ADITYA SYSTEM";
   uint8_t txtLen=strlen(finalText);
   char scramble[16];
@@ -2731,11 +2381,8 @@ void showBootSequence() {
   printCentered("SYSTEM READY",28,1); display.display(); delay(450);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   SLIDE TRANSITION (GFXcanvas1 column-wipe)
-// ═══════════════════════════════════════════════════════════════════════════════
-void slideTransition(Page /*from*/, Page to) {
-  if (!oledOK) { currentPage=to; return; }  // V8 FIX: just track page state, no drawing
+void slideTransition(Page , Page to) {
+  if (!oledOK) { currentPage=to; return; }
   static GFXcanvas1 oldCanvas(SCREEN_W,SCREEN_H);
   static GFXcanvas1 newCanvas(SCREEN_W,SCREEN_H);
   for (int16_t y=0;y<SCREEN_H;y++) for (int16_t x=0;x<SCREEN_W;x++) oldCanvas.drawPixel(x,y,display.getPixel(x,y)?1:0);
@@ -2752,13 +2399,10 @@ void slideTransition(Page /*from*/, Page to) {
   currentPage=to;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   PAGE RENDERERS
-// ═══════════════════════════════════════════════════════════════════════════════
 void drawWeatherPage() {
   SensorData s; xSemaphoreTake(dataMutex,portMAX_DELAY); s=sd; xSemaphoreGive(dataMutex);
   display.clearDisplay(); drawTitleBar("WEATHER"); char buf[22]; display.setTextSize(1);
-  display.drawFastVLine(64,12,32,SSD1306_WHITE); // V-Final: column divider for organized 2-col layout
+  display.drawFastVLine(64,12,32,SSD1306_WHITE);
   display.setCursor(0,14); display.print("T:");
   if (s.dhtOK) snprintf(buf,sizeof(buf),"%.1f\xF7""C",s.dhtTemp); else strcpy(buf,"--.-\xF7""C");
   display.print(buf);
@@ -2811,14 +2455,11 @@ void drawCalendarPage() {
 void drawExtraPage() {
   SensorData s; xSemaphoreTake(dataMutex,portMAX_DELAY); s=sd; xSemaphoreGive(dataMutex);
   display.clearDisplay(); drawTitleBar("ADVANCED"); char buf[22]; display.setTextSize(1);
-  display.drawFastVLine(64,12,36,SSD1306_WHITE); // V-Final: column divider for organized 2-col layout
+  display.drawFastVLine(64,12,36,SSD1306_WHITE);
   display.setCursor(0,14); display.print("Out:");
   if (s.ds18OK) { snprintf(buf,sizeof(buf),"%.1f\xF7""C",s.ds18Temp[0]); } else { strcpy(buf,"--.-\xF7""C"); }
   display.print(buf);
-  // V-Final FIX: Altitude comes from BME280's barometric calc (bmeOK), not
-  // DS18B20 (ds18OK) — the old code only ever printed "Alt:" inside the
-  // `if(s.ds18OK)` branch, so a working altitude reading silently vanished
-  // from the screen the moment the unrelated outdoor DS18B20 probe failed.
+  
   display.setCursor(68,14); display.print("Alt:");
   if (s.bmeOK) { snprintf(buf,sizeof(buf),"%.0fm",s.altitudeM); } else { strcpy(buf,"--m"); }
   display.print(buf);
@@ -2839,7 +2480,7 @@ void drawExtraPage() {
 
 void drawSystemStatusPage() {
   display.clearDisplay(); drawTitleBar("SYSTEM"); char buf[24]; display.setTextSize(1);
-  display.drawFastVLine(64,12,32,SSD1306_WHITE); // V-Final: column divider for organized 2-col layout
+  display.drawFastVLine(64,12,32,SSD1306_WHITE);
   uint32_t freeHeap=esp_get_free_heap_size();
   uint32_t largestBlock=(uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
   uint8_t fragPct=(freeHeap>0)?(uint8_t)(100UL-(100UL*largestBlock)/freeHeap):0;
@@ -2867,9 +2508,7 @@ void drawSensorDiagPage() {
   Row rows[4]={{"DHT22",s.dhtConfidence,s.dhtHealth,s.dhtErrors},{"BME280",s.bmeConfidence,s.bmeHealth,s.bmeErrors},{"BH1750",s.bhConfidence,s.bhHealth,s.bhErrors},{"DS18B20",s.dsConfidence,s.dsHealth,s.dsErrors}};
   for (uint8_t i=0;i<4;i++) {
     int16_t y=14+i*10;
-    // Pixel-safe layout for 128x64:
-    // Col0=0(name 6chars=36px), Col1=42(conf 4chars=24px),
-    // Col2=68(health 4chars=24px), Col3=100(err 4chars=24px) → max=124px ✓
+    
     const char* hAbbr=(rows[i].h==HEALTH_ONLINE)?"OK  ":(rows[i].h==HEALTH_WARNING)?"WARN":"ERR ";
     uint16_t ec=(rows[i].errs>99)?99:rows[i].errs;
     display.setCursor(0,y);   snprintf(buf,sizeof(buf),"%-6s",rows[i].name);   display.print(buf);
@@ -2919,7 +2558,7 @@ void drawLocalPageOnly(Page p) {
 }
 
 void renderCurrentPage() {
-  if (!oledOK) return;  // V8 FIX: no display hardware, nothing to render
+  if (!oledOK) return;
   if (displayState==DISP_OVERRIDE) {
     if (millis()>=overrideEndMs) { displayState=DISP_LOCAL; }
     else { if (drawOverridePage()) display.display(); return; }
@@ -2933,31 +2572,24 @@ void nextPage() {
   pageChangeReq=true; lastAutoCycleMs=millis();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   FREERTOS TASK 1: SENSOR (Core 1)
-// ═══════════════════════════════════════════════════════════════════════════════
 void sensorTask(void* pvParam) {
   esp_task_wdt_add(NULL);
   static uint32_t lastLogMs=0;
-  static time_t    lastNtpSync=0;  // BUG2 FIX: must match time_t to avoid truncation/overflow
+  static time_t    lastNtpSync=0;
   static uint16_t dhtConsecFails=0, bmeConsecFails=0, bhConsecFails=0, dsConsecFails=0;
-  // V7 FIX: cross-cycle spike streaks (per-sensor, persists between cycles)
+  
   static uint8_t  dhtCycleStreak=0, bmeCycleStreak=0, bhCycleStreak=0, dsCycleStreak=0;
   static float    dhtRawHist[3]={0,0,0}; static uint8_t dhtRawN=0;
   static float    dhtRawHumHist[3]={0,0,0};
 
   for (;;) {
     esp_task_wdt_reset();
-    hbSensor = millis();  // V8: heartbeat for independent stuck-task detection
+    hbSensor = millis();
 
-    // V8: in safe mode, skip the sensor pipeline entirely (peripherals may be
-    // the cause of the crash loop) but keep the task alive so heartbeats and
-    // the watchdog stay happy and the web dashboard still shows live status.
     if (safeModeActive) { vTaskDelay(pdMS_TO_TICKS(SENSOR_READ_MS)); continue; }
 
     uint16_t dhtRetries=0, bmeRetries=0, bhRetries=0, dsRetries=0;
 
-    // ── DHT22 ────────────────────────────────────────────────────────────────
     float t=dht.readTemperature(), h=dht.readHumidity();
     bool dhtRead=!isnan(t)&&!isnan(h)&&t>-40.0f&&t<80.0f&&h>=0.0f&&h<=100.0f;
     if (!dhtRead) {
@@ -2984,18 +2616,16 @@ void sensorTask(void* pvParam) {
       dhtConsecFails++;
       if (dhtConsecFails>5) {
         dht.begin(); dhtConsecFails=0;
-        dhtHasLastGood=false;  // V7 FIX: reset after re-init
+        dhtHasLastGood=false;
         logEvent(EVT_WARN,"DHT22 re-init");
       }
       if (dhtConsecFails==SENSOR_WARN_FAILS)  logEvent(EVT_WARN,"DHT22 degraded");
       if (dhtConsecFails==SENSOR_ERROR_FAILS) logEvent(EVT_ERROR,"DHT22 offline");
     }
 
-    // ── BME280 ────────────────────────────────────────────────────────────────
-    // V7 FIX: intraSpike is LOCAL (per-cycle), cycleStreak is STATIC (cross-cycle)
     float bmeTSamp[BME_RETRY_MAX],bmePSamp[BME_RETRY_MAX],bmeHSamp[BME_RETRY_MAX];
     uint8_t bmeN=0;
-    uint8_t bmeIntraStreak=0; // local: within this cycle's 3 samples
+    uint8_t bmeIntraStreak=0;
     for (uint8_t i=0;i<BME_RETRY_MAX;i++) {
       bme.takeForcedMeasurement();
       float bT2=bme.readTemperature(),bP2=bme.readPressure()/100.0f,bH2=bme.readHumidity();
@@ -3003,14 +2633,14 @@ void sensorTask(void* pvParam) {
       if (ok&&bmeHasLastGood) {
         if (fabsf(bP2-bmeLastGoodP)>BME_PRESS_JUMP_MAX) {
           bmeIntraStreak++;
-          // Use cross-cycle streak for accepting genuine fast changes across CYCLES
+          
           if (bmeIntraStreak<2 && bmeCycleStreak<1) { ok=false; } else { bmeCycleStreak=0; bmeIntraStreak=0; }
         } else { bmeIntraStreak=0; bmeCycleStreak=0; }
       }
       if (ok) { bmeTSamp[bmeN]=bT2; bmePSamp[bmeN]=bP2; bmeHSamp[bmeN]=bH2; bmeN++; } else bmeRetries++;
       if (i<BME_RETRY_MAX-1) vTaskDelay(pdMS_TO_TICKS(40));
     }
-    // Increment cross-cycle streak if ALL intra-cycle samples were spikes
+    
     if (bmeN==0 && bmeHasLastGood) bmeCycleStreak++;
     else if (bmeN>0) bmeCycleStreak=0;
 
@@ -3031,21 +2661,18 @@ void sensorTask(void* pvParam) {
       bmeConsecFails++;
       i2cBmeFailStreak++;
       if (bmeConsecFails>5) {
-        // V8: if soft re-init keeps failing, escalate to a full I2C bus
-        // recovery (bit-banged clock pulses) before retrying the driver init —
-        // a wedged bus cannot be fixed by Adafruit_BME280::begin() alone.
+        
         if (i2cBmeFailStreak >= I2C_RECOVERY_AFTER_FAILS) i2cBusRecover();
         bme.begin(BME_ADDR);
         bme.setSampling(Adafruit_BME280::MODE_FORCED,Adafruit_BME280::SAMPLING_X2,Adafruit_BME280::SAMPLING_X2,Adafruit_BME280::SAMPLING_X2,Adafruit_BME280::FILTER_X2);
         bmeConsecFails=0;
-        bmeHasLastGood=false; bmeCycleStreak=0; // V7 FIX: reset after re-init
+        bmeHasLastGood=false; bmeCycleStreak=0;
         logEvent(EVT_WARN,"BME280 re-init");
       }
       if (bmeConsecFails==SENSOR_WARN_FAILS)  logEvent(EVT_WARN,"BME280 degraded");
       if (bmeConsecFails==SENSOR_ERROR_FAILS) logEvent(EVT_ERROR,"BME280 offline");
     }
 
-    // ── BH1750 ────────────────────────────────────────────────────────────────
     float luxSamp[3]; uint8_t luxN=0;
     for (uint8_t i=0;i<3;i++) {
       float l=lightMeter.readLightLevel(); bool ok=(l>=0.0f&&l<200000.0f);
@@ -3070,18 +2697,17 @@ void sensorTask(void* pvParam) {
       bhConsecFails++;
       i2cBhFailStreak++;
       if (bhConsecFails>5) {
-        // V8: escalate to I2C bus recovery if soft re-init isn't enough
+        
         if (i2cBhFailStreak >= I2C_RECOVERY_AFTER_FAILS) i2cBusRecover();
         lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE,BH_ADDR,&Wire);
         bhConsecFails=0;
-        bhHasLastGood=false; bhCycleStreak=0; // V7 FIX
+        bhHasLastGood=false; bhCycleStreak=0;
         logEvent(EVT_WARN,"BH1750 re-init");
       }
       if (bhConsecFails==SENSOR_WARN_FAILS)  logEvent(EVT_WARN,"BH1750 degraded");
       if (bhConsecFails==SENSOR_ERROR_FAILS) logEvent(EVT_ERROR,"BH1750 offline");
     }
 
-    // ── DS18B20 ───────────────────────────────────────────────────────────────
     float dsSamp[DS18_SAMPLE_COUNT]; uint8_t dsN=0, dsCount=0;
     for (uint8_t i=0;i<DS18_SAMPLE_COUNT;i++) {
       ds18b20.requestTemperatures(); dsCount=ds18b20.getDeviceCount();
@@ -3108,7 +2734,7 @@ void sensorTask(void* pvParam) {
       dsConsecFails++;
       if (dsConsecFails>5) {
         ds18b20.begin(); dsConsecFails=0;
-        dsHasLastGood=false; dsCycleStreak=0; // V7 FIX
+        dsHasLastGood=false; dsCycleStreak=0;
         logEvent(EVT_WARN,"DS18B20 re-init");
       }
       if (dsConsecFails==SENSOR_WARN_FAILS)  logEvent(EVT_WARN,"DS18B20 degraded");
@@ -3117,7 +2743,6 @@ void sensorTask(void* pvParam) {
 
     float trend=pressureTrendFromBuffer();
 
-    // ── SINGLE SNAPSHOT COMMIT ───────────────────────────────────────────────
     xSemaphoreTake(dataMutex,portMAX_DELAY);
     float finalDhtT=0,finalDhtH=0;
     if (dhtValid) {
@@ -3159,27 +2784,21 @@ void sensorTask(void* pvParam) {
       appendLogRecord(rec);
     }
 
-    // V7 FIX: NTP resync uses configTzTime() to preserve the POSIX TZ string.
-    // The old configTime(tzOffsetSec,...) reset the timezone to numeric mode,
-    // losing POSIX DST rules after every hourly NTP resync.
     {
       time_t epoch; time(&epoch);
-      if (epoch>100000UL && (epoch-lastNtpSync)>=(time_t)NTP_RESYNC_INTERVAL && WiFi.status()==WL_CONNECTED) {  // BUG6 FIX: epoch>100000 guards against pre-NTP sync
+      if (epoch>100000UL && (epoch-lastNtpSync)>=(time_t)NTP_RESYNC_INTERVAL && WiFi.status()==WL_CONNECTED) {
         configTzTime(cfg.tzStr, "pool.ntp.org", "time.nist.gov");
-        lastNtpSync=epoch;  // BUG2 FIX: no cast needed now that lastNtpSync is time_t
+        lastNtpSync=epoch;
         Serial.println(F("[NTP] Re-sync (configTzTime)."));
       }
     }
 
     broadcastWsUpdate();
-    confirmBootIfStable();  // clears the crash-loop counter once this boot proves stable
+    confirmBootIfStable();
     vTaskDelay(pdMS_TO_TICKS(SENSOR_READ_MS));
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   FREERTOS TASK 2: DISPLAY + BUTTON (Core 0)
-// ═══════════════════════════════════════════════════════════════════════════════
 void displayTask(void* pvParam) {
   esp_task_wdt_add(NULL);
   bool lastBtnRaw=HIGH,btnState=HIGH;
@@ -3187,7 +2806,7 @@ void displayTask(void* pvParam) {
   lastAutoCycleMs=millis();
   for (;;) {
     esp_task_wdt_reset();
-    hbDisplay = millis();  // V8: heartbeat
+    hbDisplay = millis();
     uint32_t now=millis();
     bool reading=digitalRead(BUTTON_PIN);
     if (reading!=lastBtnRaw) lastDebMs=now;
@@ -3207,47 +2826,39 @@ void displayTask(void* pvParam) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   FREERTOS TASK 3: WIFI (Core 1)
-// ═══════════════════════════════════════════════════════════════════════════════
 void wifiTask(void* pvParam) {
   esp_task_wdt_add(NULL);
   static uint8_t  wifiRetries=0;
   static uint32_t lastReconMs=0, lastCleanupMs=0, lastWeatherMs=0;
-  static uint32_t backoff=5000;  // BUG1 FIX: must be static — non-static resets to 5000 every iteration
+  static uint32_t backoff=5000;
   for (;;) {
     esp_task_wdt_reset();
-    hbWifi = millis();  // V8: heartbeat
+    hbWifi = millis();
     uint32_t now=millis();
     if (!offlineMode && WiFi.status()!=WL_CONNECTED) {
-      // BUG-B FIX: skip STA reconnect in AP-only offline mode (no credentials to use,
-      // would just spam WiFi.reconnect() forever and may disrupt the SoftAP)
+      
       if (now-lastReconMs>=backoff) {
         lastReconMs=now; Serial.printf("[WiFi] Retry #%u...\n",wifiRetries+1);
         wifiHardFailStreak++;
-        // V8: after WIFI_HARD_RESET_AFTER_FAILS soft retries, fully power-cycle
-        // the WiFi driver instead of just calling reconnect() again — clears
-        // stuck RF/driver states a soft reconnect cannot recover from.
+        
         if (wifiHardFailStreak >= WIFI_HARD_RESET_AFTER_FAILS) {
           hardResetWifi();
         } else {
           WiFi.reconnect();
         }
-        wifiRetries = (wifiRetries < 255) ? wifiRetries + 1 : 255;  // V9.3: cap instead of wrap — an unbounded WiFi outage (>255 retries) shouldn't silently reset backoff to 5s
+        wifiRetries = (wifiRetries < 255) ? wifiRetries + 1 : 255;
         if (wifiRetries<3) backoff=5000; else if (wifiRetries<6) backoff=15000; else backoff=60000;
       }
     } else if (!offlineMode && WiFi.status()==WL_CONNECTED) {
       if (wifiRetries>0) { Serial.printf("[WiFi] Reconnected: %s\n",WiFi.localIP().toString().c_str()); wifiRetries=0; backoff=5000; wifiHardFailStreak=0; }
     }
-    // Persistent OpenWeather location: refresh only when Internet is actually available.
-    // No location or no API key means no request and no fabricated data.
+    
     if (WiFi.status()==WL_CONNECTED && cfg.weatherCity[0]!='\0' && cfg.owmApiKey[0]!='\0' &&
         (lastWeatherMs==0 || now-lastWeatherMs>=WEATHER_REFRESH_MS)) {
       lastWeatherMs=now;
       if (!fetchPersistentWeather()) logEvent(EVT_WARN,"OWM refresh failed for saved location");
     }
 
-    // V7 FIX: periodic WebSocket client cleanup prevents memory leak from disconnected clients
     if (now-lastCleanupMs>=WS_CLEANUP_INTERVAL_MS) {
       lastCleanupMs=now;
       if (xSemaphoreTake(wsMutex,pdMS_TO_TICKS(100))==pdTRUE) {
@@ -3259,21 +2870,18 @@ void wifiTask(void* pvParam) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   FREERTOS TASK 4: SYSTEM HEALTH (Core 0)
-// ═══════════════════════════════════════════════════════════════════════════════
 void systemHealthTask(void* pvParam) {
   esp_task_wdt_add(NULL);
   bool heapWarnLatched=false, heapErrorLatched=false, fragWarnLatched=false, wifiWasDown=false;
-  // V7 FIX: add latches for stack warnings so they don't repeat every 2s
+  
   bool sensorStackWarnLatched=false, displayStackWarnLatched=false;
   bool wifiStackWarnLatched=false,   healthStackWarnLatched=false;
   SensorHealth lastDht=HEALTH_ONLINE,lastBme=HEALTH_ONLINE,lastBh=HEALTH_ONLINE,lastDs=HEALTH_ONLINE;
 
   for (;;) {
     esp_task_wdt_reset();
-    hbHealth = millis();  // V8: heartbeat
-    checkTaskHeartbeats();  // V8: independent stuck-task detection (beyond hardware WDT)
+    hbHealth = millis();
+    checkTaskHeartbeats();
 
     uint32_t freeHeap=esp_get_free_heap_size();
     uint32_t largestBlock=(uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
@@ -3295,7 +2903,6 @@ void systemHealthTask(void* pvParam) {
     if (!wifiUp&&!wifiWasDown) { logEvent(EVT_WARN,"WiFi link down"); wifiWasDown=true; }
     else if (wifiUp&&wifiWasDown) { logEvent(EVT_INFO,"WiFi restored: %s",WiFi.localIP().toString().c_str()); wifiWasDown=false; }
 
-    // V7 FIX: latched stack watermark warnings
     if (hSensorTask  && uxTaskGetStackHighWaterMark(hSensorTask)<256  && !sensorStackWarnLatched)  { logEvent(EVT_WARN,"Sensor task stack low");  sensorStackWarnLatched=true;  }
     if (hDisplayTask && uxTaskGetStackHighWaterMark(hDisplayTask)<256 && !displayStackWarnLatched) { logEvent(EVT_WARN,"Display task stack low"); displayStackWarnLatched=true; }
     if (hWifiTask    && uxTaskGetStackHighWaterMark(hWifiTask)<256    && !wifiStackWarnLatched)    { logEvent(EVT_WARN,"WiFi task stack low");    wifiStackWarnLatched=true;    }
@@ -3314,15 +2921,12 @@ void systemHealthTask(void* pvParam) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   LOG FILE
-// ═══════════════════════════════════════════════════════════════════════════════
 void logRotateIfNeeded() {
   char path[16]; snprintf(path,sizeof(path),"/log.%u.csv",activeLog);
   if (LittleFS.exists(path)) { File f=LittleFS.open(path,"r"); if (f) { size_t sz=f.size(); f.close(); if (sz>=LOG_MAX_FILE_BYTES) { char old[16]; snprintf(old,sizeof(old),"/log.%u.csv",1-activeLog); LittleFS.remove(old); activeLog=1-activeLog; } } }
 }
 void appendLogRecord(const LogRecord& rec) {
-  if (xSemaphoreTake(fsMutex,pdMS_TO_TICKS(500))!=pdTRUE) return;  // BUG5 FIX: LittleFS not thread-safe
+  if (xSemaphoreTake(fsMutex,pdMS_TO_TICKS(500))!=pdTRUE) return;
   logRotateIfNeeded();
   char path[16]; snprintf(path,sizeof(path),"/log.%u.csv",activeLog);
   bool newFile=!LittleFS.exists(path);
@@ -3335,9 +2939,6 @@ void appendLogRecord(const LogRecord& rec) {
   xSemaphoreGive(fsMutex);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   WEBSOCKET BROADCAST
-// ═══════════════════════════════════════════════════════════════════════════════
 void broadcastWsUpdate() {
   if (ws.count()==0) return;
   SensorData s; xSemaphoreTake(dataMutex,portMAX_DELAY); s=sd; xSemaphoreGive(dataMutex);
@@ -3388,7 +2989,7 @@ void broadcastWsUpdate() {
   doc["wifi_connected"]=(WiFi.status()==WL_CONNECTED);
   doc["sta_ip"]=WiFi.localIP().toString();
   doc["ap_ip"]=apIpStr;
-  // V8 NEW: surface error-handling/recovery state to the dashboard
+  
   doc["safe_mode"]=safeModeActive;
   doc["oled_ok"]=oledOK;
   doc["i2c_recoveries"]=(uint32_t)i2cRecoveryCount;
@@ -3399,12 +3000,12 @@ void broadcastWsUpdate() {
     sw["valid"]=savedWeather.valid; sw["city"]=savedWeather.city; sw["country"]=savedWeather.country;
     sw["description"]=savedWeather.description; sw["temp"]=savedWeather.tempC; sw["feels_like"]=savedWeather.feelsLike;
     sw["humidity"]=savedWeather.humidity; sw["pressure"]=savedWeather.pressure; sw["wind"]=savedWeather.windSpeed;
-    sw["clouds"]=savedWeather.clouds; sw["time"]=savedWeather.timeStr; sw["timezone"]=savedWeather.timezone;
+    sw["clouds"]=savedWeather.clouds; sw["visibility_m"]=savedWeather.visibilityM; sw["time"]=savedWeather.timeStr; sw["timezone"]=savedWeather.timezone;
     sw["updated_s"]=savedWeather.valid ? ((millis()-savedWeather.updatedMs)/1000UL) : 0;
     xSemaphoreGive(overrideMutex);
   }
   String out; out.reserve(1900); serializeJson(doc,out);
-  wsTextAll(out);  // V7: mutex-protected
+  wsTextAll(out);
 }
 
 void onWsEvent(AsyncWebSocket* s, AsyncWebSocketClient* c, AwsEventType type, void* arg, uint8_t* data, size_t len) {
@@ -3412,11 +3013,6 @@ void onWsEvent(AsyncWebSocket* s, AsyncWebSocketClient* c, AwsEventType type, vo
   else if (type==WS_EVT_DISCONNECT) { Serial.printf("[WS] #%u disconnected\n",c->id()); }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   SESSION TOKENS (V10 — modern token-based auth, additive to Basic Auth)
-// ═══════════════════════════════════════════════════════════════════════════════
-// Cryptographically-random 128-bit token as 32 lowercase hex chars. esp_random()
-// is the hardware TRNG on ESP32 (not a seeded PRNG), suitable for session tokens.
 static String generateSessionToken() {
   char buf[SESSION_TOKEN_LEN+1];
   for (int i = 0; i < SESSION_TOKEN_LEN; i++) {
@@ -3427,8 +3023,6 @@ static String generateSessionToken() {
   return String(buf);
 }
 
-// Mint a new session and return its token. If the table is full, evicts the
-// entry closest to expiring (never silently fails a fresh login).
 String createSession() {
   String tok = generateSessionToken();
   if (xSemaphoreTake(sessionMutex, pdMS_TO_TICKS(200)) != pdTRUE) return String();
@@ -3437,7 +3031,7 @@ String createSession() {
     if (!sessions[i].active) { slot = i; break; }
     if (sessions[i].expiresAt < soonestExp) { soonestExp = sessions[i].expiresAt; soonestIdx = i; }
   }
-  if (slot < 0) slot = soonestIdx; // table full — evict the one expiring soonest
+  if (slot < 0) slot = soonestIdx;
   strncpy(sessions[slot].token, tok.c_str(), SESSION_TOKEN_LEN);
   sessions[slot].token[SESSION_TOKEN_LEN] = '\0';
   sessions[slot].expiresAt = millis() + SESSION_TTL_MS;
@@ -3446,9 +3040,6 @@ String createSession() {
   return tok;
 }
 
-// Constant-time-compared lookup. Valid, non-expired tokens get a sliding
-// expiry refresh so an actively-used dashboard tab never gets logged out
-// mid-session, while an abandoned tab's token still expires naturally.
 bool validateSession(const String& token) {
   if (token.length() != SESSION_TOKEN_LEN) return false;
   bool ok = false;
@@ -3457,7 +3048,7 @@ bool validateSession(const String& token) {
     for (int i = 0; i < MAX_SESSIONS; i++) {
       if (!sessions[i].active) continue;
       if (!secureCompare(sessions[i].token, token.c_str())) continue;
-      if ((int32_t)(now - sessions[i].expiresAt) >= 0) { sessions[i].active = false; } // expired
+      if ((int32_t)(now - sessions[i].expiresAt) >= 0) { sessions[i].active = false; }
       else { sessions[i].expiresAt = now + SESSION_TTL_MS; ok = true; }
       break;
     }
@@ -3475,10 +3066,6 @@ void invalidateSession(const String& token) {
   }
 }
 
-// Called when the dashboard password is rotated: every existing token was
-// minted under the old password, so honoring them afterward would let a
-// browser that logged in before the rotation keep acting as if it still
-// knew the current password. Force everyone to log in again.
 void invalidateAllSessions() {
   if (xSemaphoreTake(sessionMutex, pdMS_TO_TICKS(200)) == pdTRUE) {
     for (int i = 0; i < MAX_SESSIONS; i++) sessions[i].active = false;
@@ -3486,15 +3073,6 @@ void invalidateAllSessions() {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   AUTH
-// ═══════════════════════════════════════════════════════════════════════════════
-// V9: both auth checks now go through per-IP brute-force lockout and
-// constant-time credential comparison, and read the NVS-overridable `sec`
-// values instead of the compiled-in factory-default macros directly.
-// V10: checkBasicAuth() now also accepts a Bearer session token ahead of the
-// classic Basic Auth check — see SESSION TOKENS section above. Every existing
-// call site is unchanged; both auth styles are accepted transparently.
 bool checkBasicAuth(AsyncWebServerRequest* req) {
   uint32_t ip = clientIpToU32(req);
   uint32_t retryMs = 0;
@@ -3542,13 +3120,8 @@ bool checkApiKey(AsyncWebServerRequest* req) {
   return true;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   WEB SERVER
-// ═══════════════════════════════════════════════════════════════════════════════
 void startCaptiveDns() {
-  // Captive portal DNS: every hostname resolves to the ESP32 AP address.
-  // This is NOT a WiFi configuration portal; it only brings the local
-  // dashboard to the browser after joining the Weather Station AP.
+  
   IPAddress apIP = WiFi.softAPIP();
   captiveDns.stop();
   captiveDns.start(53, "*", apIP);
@@ -3556,23 +3129,12 @@ void startCaptiveDns() {
 }
 
 void setupWebServer() {
-  // V9 NEW: security response headers applied to every response automatically
-  // (equivalent to calling applySecurityHeaders() on each handler manually).
+  
   DefaultHeaders::Instance().addHeader("X-Content-Type-Options", "nosniff");
   DefaultHeaders::Instance().addHeader("X-Frame-Options", "DENY");
 
-  // V10 NEW: token-based login/logout. checkBasicAuth() here always goes
-  // through the classic Basic Auth branch (a Bearer token can't be used to
-  // mint another token), so this is the one place the real password is
-  // still required — after this, the browser switches to Bearer tokens for
-  // everything else. checkOriginSameHost() is NOT needed here: a forged
-  // cross-site login POST cannot succeed without knowing the credentials,
-  // and even if it somehow did, the resulting token is only ever handed
-  // back in the response body, which a cross-origin attacker page can never
-  // read (browsers block reading cross-origin response bodies) — so there's
-  // nothing for a CSRF page to steal here even in principle.
   server.on("/api/login", HTTP_POST, [](AsyncWebServerRequest* req) {
-    if (!checkBasicAuth(req)) return; // handles lockout + WWW-Authenticate challenge
+    if (!checkBasicAuth(req)) return;
     String tok = createSession();
     if (tok.length() == 0) { req->send(503,"application/json","{\"error\":\"Session table busy, try again.\"}"); return; }
     StaticJsonDocument<128> doc;
@@ -3590,10 +3152,6 @@ void setupWebServer() {
     req->send(200,"application/json","{\"ok\":true}");
   });
 
-  // V9 NEW: change dashboard password / API key / log-clear token at runtime.
-  // Requires the CURRENT dashboard password (Basic Auth) — a stolen API key
-  // alone cannot rotate credentials, only a client that already knows the
-  // dashboard password can. New values are persisted to NVS via saveSecurityConfig().
   server.on("/api/security/credentials", HTTP_POST,
     [](AsyncWebServerRequest* req){}, nullptr,
     [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
@@ -3607,9 +3165,7 @@ void setupWebServer() {
       if (!body) return;
       body->concat((const char*)data,len);
       if (index+len!=total) return;
-      // V9 self-review fix: 256 bytes was tight for 4 possible string fields
-      // (password/api_key/clear_token) plus ArduinoJson per-key
-      // overhead — could hit NoMemory and silently drop a field. Sized with margin.
+      
       StaticJsonDocument<384> doc;
       DeserializationError err=deserializeJson(doc,*body);
       delete body; req->_tempObject=nullptr;
@@ -3619,7 +3175,7 @@ void setupWebServer() {
         const char* np=doc["new_password"]|"";
         if (strlen(np)<8) { req->send(400,"application/json","{\"error\":\"Password min 8 chars\"}"); return; }
         strlcpy(sec.dashPass,np,sizeof(sec.dashPass)); changed=true;
-        invalidateAllSessions(); // V10: old tokens were minted under the old password — force re-login everywhere
+        invalidateAllSessions();
       }
       if (doc.containsKey("new_api_key")) {
         const char* nk=doc["new_api_key"]|"";
@@ -3634,7 +3190,7 @@ void setupWebServer() {
       if (changed) {
         sec.usingFactoryDefaults = false;
         saveSecurityConfig();
-        ws.setAuthentication(sec.dashUser, sec.dashPass);  // V9: keep WS handshake auth in sync with rotated password
+        ws.setAuthentication(sec.dashUser, sec.dashPass);
         logEvent(EVT_WARN,"Security credentials rotated via dashboard");
         req->send(200,"application/json","{\"ok\":true,\"msg\":\"Credentials updated.\"}");
       } else {
@@ -3643,34 +3199,23 @@ void setupWebServer() {
     }
   );
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // CAPTIVE-PORTAL HANDOFF
-  //
-  // Phones/OSes probe well-known URLs immediately after joining an AP.
-  // These requests are redirected to the real Weather Station dashboard,
-  // never to a Wi-Fi configuration page.
-  //
-  // Authentication remains intact: the probe only redirects; the dashboard
-  // still goes through the existing Basic-Auth/session security.
-  // ─────────────────────────────────────────────────────────────────────────
   auto redirectToDashboard = [](AsyncWebServerRequest* req) {
     req->redirect("/");
   };
 
-  server.on("/generate_204", HTTP_GET, redirectToDashboard);              // Android
-  server.on("/gen_204", HTTP_GET, redirectToDashboard);                   // Android
-  server.on("/hotspot-detect.html", HTTP_GET, redirectToDashboard);        // Apple
-  server.on("/connecttest.txt", HTTP_GET, redirectToDashboard);            // Windows
-  server.on("/ncsi.txt", HTTP_GET, redirectToDashboard);                  // Windows
-  server.on("/success.txt", HTTP_GET, redirectToDashboard);                // Generic
-  server.on("/canonical.html", HTTP_GET, redirectToDashboard);             // Generic
-  server.on("/redirect", HTTP_GET, redirectToDashboard);                   // Generic
-  server.on("/fwlink", HTTP_GET, redirectToDashboard);                     // Windows
-  server.on("/library/test/success.html", HTTP_GET, redirectToDashboard);   // Android variants
+  server.on("/generate_204", HTTP_GET, redirectToDashboard);
+  server.on("/gen_204", HTTP_GET, redirectToDashboard);
+  server.on("/hotspot-detect.html", HTTP_GET, redirectToDashboard);
+  server.on("/connecttest.txt", HTTP_GET, redirectToDashboard);
+  server.on("/ncsi.txt", HTTP_GET, redirectToDashboard);
+  server.on("/success.txt", HTTP_GET, redirectToDashboard);
+  server.on("/canonical.html", HTTP_GET, redirectToDashboard);
+  server.on("/redirect", HTTP_GET, redirectToDashboard);
+  server.on("/fwlink", HTTP_GET, redirectToDashboard);
+  server.on("/library/test/success.html", HTTP_GET, redirectToDashboard);
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
-    // The embedded dashboard is authoritative. A stale LittleFS /index.html
-    // must never replace it after a firmware-only flash.
+    
     if (!checkBasicAuth(req)) return;
     AsyncWebServerResponse* resp = req->beginResponse_P(200, "text/html", DASHBOARD_HTML);
     resp->addHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
@@ -3710,7 +3255,16 @@ void setupWebServer() {
     uint32_t fH=esp_get_free_heap_size(); uint32_t lB=(uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
     doc["heap_frag_pct"]=(fH>0)?(uint8_t)(100UL-(100UL*lB)/fH):0;
     doc["offline_mode"]=(bool)offlineMode; doc["ap_ip"]=apIpStr;
-    String out; out.reserve(1000); serializeJson(doc,out);
+    if (xSemaphoreTake(overrideMutex,pdMS_TO_TICKS(20))==pdTRUE) {
+      JsonObject sw=doc.createNestedObject("saved_weather");
+      sw["valid"]=savedWeather.valid; sw["city"]=savedWeather.city; sw["country"]=savedWeather.country;
+      sw["description"]=savedWeather.description; sw["temp"]=savedWeather.tempC; sw["feels_like"]=savedWeather.feelsLike;
+      sw["humidity"]=savedWeather.humidity; sw["pressure"]=savedWeather.pressure; sw["wind"]=savedWeather.windSpeed;
+      sw["clouds"]=savedWeather.clouds; sw["visibility_m"]=savedWeather.visibilityM;
+      sw["time"]=savedWeather.timeStr; sw["timezone"]=savedWeather.timezone;
+      xSemaphoreGive(overrideMutex);
+    }
+    String out; out.reserve(1200); serializeJson(doc,out);
     req->send(200,"application/json",out);
   });
 
@@ -3745,9 +3299,7 @@ void setupWebServer() {
   server.on("/api/config", HTTP_POST,
     [](AsyncWebServerRequest* req){}, nullptr,
     [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
-      // V9 FIX: auth + CSRF + size checks gated to index==0 ONLY — previously
-      // checkBasicAuth() ran on every body chunk, which could fire multiple
-      // 401 responses on one connection for a fragmented body.
+      
       if (index==0) {
         if (!checkBasicAuth(req)) return;
         if (!checkOriginSameHost(req)) { req->send(403,"application/json","{\"error\":\"Cross-origin request blocked\"}"); return; }
@@ -3755,7 +3307,7 @@ void setupWebServer() {
         req->_tempObject=new String();
       }
       String* body=(String*)req->_tempObject;
-      if (!body) return;  // Safety: auth/CSRF/size failed on index==0, no buffer allocated
+      if (!body) return;
       body->concat((const char*)data,len);
       if (index+len!=total) return;
       StaticJsonDocument<256> doc;
@@ -3831,7 +3383,7 @@ void setupWebServer() {
   server.on("/api/weather-search", HTTP_POST,
     [](AsyncWebServerRequest* req){}, nullptr,
     [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
-      // V9 FIX: auth + CSRF + size checks gated to index==0 ONLY (see /api/config note above).
+      
       if (index==0) {
         if (!checkBasicAuth(req)) return;
         if (!checkOriginSameHost(req)) { req->send(403,"application/json","{\"error\":\"Cross-origin request blocked\"}"); return; }
@@ -3839,7 +3391,7 @@ void setupWebServer() {
         req->_tempObject=new String();
       }
       String* body=(String*)req->_tempObject;
-      if (!body) return;  // Safety: auth/CSRF/size failed on index==0, no buffer allocated
+      if (!body) return;
       body->concat((const char*)data,len);
       if (index+len!=total) return;
       if (cfg.owmApiKey[0]=='\0') { delete body; req->_tempObject=nullptr; req->send(400,"application/json","{\"error\":\"OWM API key not set.\"}"); return; }
@@ -3849,22 +3401,18 @@ void setupWebServer() {
       if (err) { req->send(400,"application/json","{\"error\":\"Bad JSON\"}"); return; }
       const char* city=doc["city"]|""; const char* country=doc["country"]|"";
       if (strlen(city)==0) { req->send(400,"application/json","{\"error\":\"city required\"}"); return; }
-      // V9: reject control characters (CR/LF/etc.) so a hostile city/country
-      // string can never inject extra header lines into the outbound OWM
-      // HTTP request built in fetchWeatherAndTime() (request-line/header injection).
+      
       for (const char* c = city; *c; c++)    { if ((uint8_t)*c < 0x20) { req->send(400,"application/json","{\"error\":\"Invalid city\"}"); return; } }
       for (const char* c = country; *c; c++) { if ((uint8_t)*c < 0x20) { req->send(400,"application/json","{\"error\":\"Invalid country\"}"); return; } }
       struct FP { char city[48]; char country[8]; };
       FP* fp=new FP(); strlcpy(fp->city,city,sizeof(fp->city)); strlcpy(fp->country,country,sizeof(fp->country));
-      if (fetchWxRunning) { delete fp; req->send(429,"application/json","{\"error\":\"Search already in progress.\"}"); return; }  // BUG4 FIX
+      if (fetchWxRunning) { delete fp; req->send(429,"application/json","{\"error\":\"Search already in progress.\"}"); return; }
       fetchWxRunning=true;
       if (xTaskCreate([](void* arg){
         FP* p=(FP*)arg;
         fetchWeatherAndTime(p->city,p->country);
         delete p;
-        // IMPORTANT: set flag BEFORE vTaskDelete(NULL) — vTaskDelete never returns
-        // and does not unwind the stack, so RAII destructors do NOT run after it.
-        // Explicit reset here is the only reliable way to clear the flag.
+        
         fetchWxRunning=false;
         vTaskDelete(NULL);
       },"fetchWx",8192,fp,2,NULL)==pdPASS) {
@@ -3873,10 +3421,8 @@ void setupWebServer() {
     }
   );
 
-  // V7 FIX: overrideMutex timeout changed from portMAX_DELAY to 100ms in async handler
   server.on("/api/override-status", HTTP_GET, [](AsyncWebServerRequest* req) {
-    // V9 FIX: was fully unauthenticated — leaked override city/location/weather
-    // data to anyone on the network. Basic Auth cached by browser after login.
+    
     if (!checkBasicAuth(req)) return;
     StaticJsonDocument<256> doc;
     bool active=(displayState==DISP_OVERRIDE);
@@ -3915,52 +3461,33 @@ void setupWebServer() {
   });
 
   server.on("/log/clear", HTTP_POST, [](AsyncWebServerRequest* req) {
-    // V9 FIX: constant-time token compare + brute-force lockout (this token
-    // was previously checked with plain String != and had no rate limiting).
+    
     uint32_t ip = clientIpToU32(req); uint32_t retryMs=0;
     if (isAuthLocked(ip,&retryMs)) { req->send(429,"text/plain","Too many attempts. Try later."); return; }
     if (!req->hasHeader("X-Clear-Token") || !secureCompare(req->header("X-Clear-Token").c_str(), sec.logClearToken)) {
       recordAuthFailure(ip); req->send(403,"text/plain","Forbidden"); return;
     }
     recordAuthSuccess(ip);
-    if (xSemaphoreTake(fsMutex,pdMS_TO_TICKS(500))==pdTRUE) { LittleFS.remove("/log.0.csv"); LittleFS.remove("/log.1.csv"); xSemaphoreGive(fsMutex); }  // BUG5 FIX
+    if (xSemaphoreTake(fsMutex,pdMS_TO_TICKS(500))==pdTRUE) { LittleFS.remove("/log.0.csv"); LittleFS.remove("/log.1.csv"); xSemaphoreGive(fsMutex); }
     logCount=0; logHead=0; activeLog=0;
     req->send(200,"text/plain","Log cleared.");
   });
 
   server.on("/api/system", HTTP_GET, [](AsyncWebServerRequest* req) {
-    // V9 self-review fix: was checkApiKey(), but the dashboard's loadSys()
-    // call is the ONLY caller and it hard-coded the factory-default API key
-    // in client JS. The moment an operator rotates the key via
-    // /api/security/credentials (the very feature this firmware ships),
-    // System Info silently breaks (401, swallowed by .catch()). Every other
-    // dashboard-consumed GET endpoint already uses checkBasicAuth, which the
-    // browser re-sends automatically from its cached login — switched this
-    // one to match, and dropped the hard-coded key from the JS below.
+    
     if (!checkBasicAuth(req)) return;
     StaticJsonDocument<384> doc;
     doc["firmware"]=FIRMWARE_VERSION; doc["free_heap"]=esp_get_free_heap_size();
     doc["min_heap"]=esp_get_minimum_free_heap_size(); doc["uptime_s"]=millis()/1000UL;
     doc["fs_used"]=(uint32_t)LittleFS.usedBytes(); doc["fs_total"]=(uint32_t)LittleFS.totalBytes();
     doc["rssi"]=WiFi.RSSI(); doc["mac"]=WiFi.macAddress(); doc["chip_rev"]=ESP.getChipRevision(); doc["cpu_mhz"]=ESP.getCpuFreqMHz();
-    // V8 NEW: error-handling/recovery diagnostics
+    
     doc["safe_mode"]=safeModeActive; doc["safe_mode_reason"]=safeModeActive?safeModeReason:"";
     doc["boot_confirmed"]=bootConfirmed; doc["oled_ok"]=oledOK;
     doc["i2c_recoveries"]=(uint32_t)i2cRecoveryCount; doc["wifi_hard_resets"]=(uint32_t)wifiHardResetCount;
     String out; serializeJson(doc,out); req->send(200,"application/json",out);
   });
 
-  // V9 self-review fix: the dashboard shipped two "Restart Device" buttons
-  // (sidebar + System Info quick-action) that were pure UI stubs — onclick
-  // just called alert("Send restart via API"), and no such API endpoint
-  // existed anywhere in this firmware. A button that promises an action and
-  // silently does nothing is a real bug, not a cosmetic one. Implemented for
-  // real here: auth + CSRF gated like every other state-changing endpoint,
-  // deferred by ~600ms in a one-shot background task so the HTTP response
-  // actually reaches the browser (AsyncTCP needs a tick to flush) before
-  // esp_restart() tears everything down. This is NOT the old OTA
-  // scheduleRestart()/pendingRestart machinery (correctly removed above) —
-  // it's a small, self-contained, one-shot task with no shared state.
   server.on("/api/restart", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!checkBasicAuth(req)) return;
     if (!checkOriginSameHost(req)) { req->send(403,"application/json","{\"error\":\"Cross-origin request blocked\"}"); return; }
@@ -3969,11 +3496,8 @@ void setupWebServer() {
     xTaskCreate([](void*){ vTaskDelay(pdMS_TO_TICKS(600)); esp_restart(); },"manualRestart",2048,NULL,1,NULL);
   });
 
-  // ── Offline/WiFi management endpoints ────────────────────────────────────────
   server.on("/api/wifi/status", HTTP_GET, [](AsyncWebServerRequest* req) {
-    // V9 FIX: this leaked SSID/IP/RSSI/AP-station-count to ANY unauthenticated
-    // client on the network — browsers already cache Basic Auth per-origin
-    // after the dashboard's first login, so this doesn't break the UI.
+    
     if (!checkBasicAuth(req)) return;
     StaticJsonDocument<192> doc;
     doc["connected"]=(WiFi.status()==WL_CONNECTED);
@@ -3988,12 +3512,9 @@ void setupWebServer() {
 
   server.on("/api/wifi/reconnect", HTTP_POST, [](AsyncWebServerRequest* req) {
     if (!checkBasicAuth(req)) return;
-    // V9 self-review fix: every other state-changing POST endpoint also
-    // gates on checkOriginSameHost() — this one was missing it, so a CSRF
-    // page could still force a WiFi reconnect cycle even though it couldn't
-    // exfiltrate anything. Added for consistency with the rest of the API.
+    
     if (!checkOriginSameHost(req)) { req->send(403,"application/json","{\"error\":\"Cross-origin request blocked\"}"); return; }
-    // Reconnect attempt in background to avoid blocking async handler
+    
     struct RW {}; RW* rw=new RW();
     if (xTaskCreate([](void* arg){ delete (RW*)arg; WiFi.reconnect(); vTaskDelay(pdMS_TO_TICKS(8000)); if(WiFi.status()==WL_CONNECTED){offlineMode=false;logEvent(EVT_INFO,"WiFi reconnected after manual trigger");} vTaskDelete(NULL); },"wifiRecon",3072,rw,1,NULL)!=pdPASS) delete rw;
     req->send(200,"application/json","{\"ok\":true,\"msg\":\"Reconnect triggered.\"}");
@@ -4005,14 +3526,14 @@ void setupWebServer() {
     memset(cfg.wifiSsid, 0, sizeof(cfg.wifiSsid));
     memset(cfg.wifiPass, 0, sizeof(cfg.wifiPass));
     saveConfig();
-    WiFi.disconnect(false);  // BUG-D FIX: sync runtime WiFi state with cleared credentials
+    WiFi.disconnect(false);
     req->send(200,"application/json","{\"ok\":true,\"msg\":\"WiFi credentials cleared. Restart to apply.\"}");
   });
 
   server.on("/api/ap/config", HTTP_POST,
     [](AsyncWebServerRequest* req){}, nullptr,
     [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
-      // V9 FIX: auth + CSRF + size checks gated to index==0 ONLY (see /api/config note above).
+      
       if (index==0) {
         if (!checkBasicAuth(req)) return;
         if (!checkOriginSameHost(req)) { req->send(403,"application/json","{\"error\":\"Cross-origin request blocked\"}"); return; }
@@ -4020,7 +3541,7 @@ void setupWebServer() {
         req->_tempObject=new String();
       }
       String* body=(String*)req->_tempObject;
-      if (!body) return;  // Safety: auth/CSRF/size failed on index==0, no buffer allocated
+      if (!body) return;
       body->concat((const char*)data,len);
       if (index+len!=total) return;
       StaticJsonDocument<128> doc;
@@ -4029,7 +3550,7 @@ void setupWebServer() {
       if (err) { req->send(400,"application/json","{\"error\":\"Bad JSON\"}"); return; }
       if (doc.containsKey("ap_pass")) {
         const char* newPass = doc["ap_pass"]|FALLBACK_AP_PASS;
-        if (strlen(newPass) < 8) { req->send(400,"application/json","{\"error\":\"AP password min 8 chars\"}"); return; }  // BUG-E FIX
+        if (strlen(newPass) < 8) { req->send(400,"application/json","{\"error\":\"AP password min 8 chars\"}"); return; }
         strlcpy(cfg.apPass,newPass,sizeof(cfg.apPass));
       }
       saveConfig();
@@ -4038,68 +3559,44 @@ void setupWebServer() {
     }
   );
 
-  // V9 FIX (major): the /ws WebSocket had NO authentication at all — any
-  // client on the network (or on the offline SoftAP) could connect and
-  // receive the full live telemetry stream (sensor readings, free heap, IP,
-  // RSSI, safe-mode reason, i2c/wifi recovery counters) without ever
-  // presenting the dashboard password. Basic Auth on the WS upgrade
-  // handshake closes this — browsers that already authenticated against "/"
-  // resend the cached credential automatically, so the dashboard is unaffected.
   ws.setAuthentication(sec.dashUser, sec.dashPass);
   ws.onEvent(onWsEvent);
   server.addHandler(&ws);
   server.onNotFound([](AsyncWebServerRequest* req){ req->send(404,"text/plain","Not found."); });
   server.begin();
-  Serial.println(F("[Web] Server started."));  // V7 FIX: was "V5"
+  Serial.println(F("[Web] Server started."));
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//   SETUP
-// ═══════════════════════════════════════════════════════════════════════════════
 void setup() {
   Serial.begin(115200);
   Serial.println(F("\n\n[Boot] ADITYA WEATHER STATION"));
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   bootStartMs = millis();
 
-  // ── Watchdog timer setup (Core 2.x / Core 3.x compatible) ───────────────
-  // Arduino ESP32 Core 3.x (IDF 5.x): uses esp_task_wdt_config_t struct and
-  // esp_task_wdt_reconfigure(). Core 2.x (IDF 4.x): uses the simpler 2-param
-  // esp_task_wdt_init(). We use version guards to compile correctly on both.
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
   {
     esp_task_wdt_config_t wdt_cfg;
     wdt_cfg.timeout_ms   = WDT_TIMEOUT_S * 1000;
     wdt_cfg.idle_core_mask = 0;
     wdt_cfg.trigger_panic  = true;
-    // In Core 3.x, Arduino may have already initialised the WDT.
-    // esp_task_wdt_reconfigure is safe to call even if already inited.
+    
     esp_err_t wdt_err = esp_task_wdt_reconfigure(&wdt_cfg);
     if (wdt_err == ESP_ERR_INVALID_STATE) {
-      // WDT not initialised yet — init it fresh
+      
       esp_task_wdt_init(&wdt_cfg);
     }
   }
 #else
-  // Core 2.x (IDF 4.x) simple API
+  
   esp_task_wdt_init(WDT_TIMEOUT_S, true);
 #endif
-  esp_task_wdt_add(NULL);  // Register setup()/loop() Arduino task with WDT
+  esp_task_wdt_add(NULL);
 
-  // V8 NEW: crash-loop detection. Runs before ANY peripheral/network init so
-  // even a bus-level hang during sensor or display bring-up gets counted.
-  // recordBootAttempt() increments a persisted NVS counter; confirmBootIfStable()
-  // (called later, once the system has run healthily for BOOT_CONFIRM_DELAY_MS)
-  // resets it back to 0. If the device reboots CRASH_LOOP_THRESHOLD times
-  // before ever reaching that confirmation, we drop into safe mode instead of
-  // repeating whatever caused the crash.
   recordBootAttempt();
   if (safeModeActive) {
     Serial.printf("[SAFE MODE] %s — skipping sensors/peripherals, WiFi+web only.\n", safeModeReason);
   }
 
-  // V8 NEW: log WHY we rebooted (brownout, panic, watchdog, deep-sleep, etc.)
-  // — invaluable for diagnosing field failures remotely via the event log.
   esp_reset_reason_t rr = esp_reset_reason();
   const char* rrStr = "Unknown";
   switch (rr) {
@@ -4119,22 +3616,18 @@ void setup() {
   displayMutex = xSemaphoreCreateMutex();
   overrideMutex= xSemaphoreCreateMutex();
   eventMutex   = xSemaphoreCreateMutex();
-  wsMutex      = xSemaphoreCreateMutex();  // V7 NEW
-  fsMutex      = xSemaphoreCreateMutex();  // BUG5 FIX
-  authTableMutex = xSemaphoreCreateMutex(); // V9 NEW: protects brute-force tracking table
-  sessionMutex = xSemaphoreCreateMutex();   // V10 NEW: protects session-token table
+  wsMutex      = xSemaphoreCreateMutex();
+  fsMutex      = xSemaphoreCreateMutex();
+  authTableMutex = xSemaphoreCreateMutex();
+  sessionMutex = xSemaphoreCreateMutex();
   if (!dataMutex||!displayMutex||!overrideMutex||!eventMutex||!wsMutex||!fsMutex||!authTableMutex||!sessionMutex) {
-    // V8/V10 FIX: feed the WDT and yield while waiting for the watchdog
-    // recovery path. This also covers sessionMutex allocation failure.
+    
     Serial.println(F("[RTOS] Mutex allocation FAILED — rebooting"));
     for(;;) { esp_task_wdt_reset(); vTaskDelay(pdMS_TO_TICKS(1000)); }
   }
 
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN); Wire.setClock(400000);
 
-  // Robust OLED detection: try the common 0x3C address first, then 0x3D,
-  // with a short retry window. This fixes modules that are wired correctly but
-  // use the alternate SSD1306 I2C address or need a little startup settling time.
   uint8_t oledAddrDetected=0;
   for (uint8_t attempt=0; attempt<3 && !oledAddrDetected; attempt++) {
     Wire.beginTransmission(OLED_ADDR);
@@ -4156,9 +3649,6 @@ void setup() {
     showBootSequence();
   }
 
-  // V8: in safe mode, skip sensor bring-up entirely — a wedged sensor bus is
-  // a plausible cause of a boot-time crash loop, so we don't touch it again
-  // until the operator has had a chance to inspect/reflash via the web UI.
   if (!safeModeActive) {
     dht.begin();
     if (!bme.begin(BME_ADDR)) { if(oledOK){showSplash("BME280 Error!","Check wiring"); delay(1500);} logEvent(EVT_WARN,"BME280 not detected at boot"); }
@@ -4171,18 +3661,11 @@ void setup() {
   else { Serial.printf("[LittleFS] %u/%u bytes\n",LittleFS.usedBytes(),LittleFS.totalBytes()); }
 
   loadConfig();
-  loadSecurityConfig();  // V9 NEW: load NVS-overridden credentials (falls back to factory defaults)
+  loadSecurityConfig();
   if (sec.usingFactoryDefaults) {
     logEvent(EVT_WARN, "Security: factory-default credentials still active — change via /api/security/credentials");
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // LOCAL AP FIRST — no configuration manager / configuration portal.
-  //
-  // The Weather Station AP is deliberately started on every boot and kept
-  // available even when the ESP32 also connects to a configured router.
-  // This makes the local dashboard reachable immediately.
-  // ─────────────────────────────────────────────────────────────────────────
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAP(AP_SSID, cfg.apPass);
   delay(200);
@@ -4190,7 +3673,6 @@ void setup() {
   strncpy(apIpStr, WiFi.softAPIP().toString().c_str(), sizeof(apIpStr) - 1);
   apIpStr[sizeof(apIpStr) - 1] = '\0';
 
-  // Start captive DNS immediately after the AP gets its IP.
   startCaptiveDns();
 
   Serial.printf("[AP] Weather Station AP started: %s  IP: %s\n",
@@ -4204,9 +3686,6 @@ void setup() {
 
   bool wifiOK = false;
 
-  // A stored Wi-Fi configuration is optional. If present, connect to it
-  // without ever opening a configuration portal. If it fails, the local AP
-  // remains fully usable and the dashboard stays available.
   if (cfg.wifiSsid[0] != '\0') {
     showSplash("Connecting WiFi...", cfg.wifiSsid);
     wifiOK = connectHiddenWifi(cfg.wifiSsid, cfg.wifiPass);
@@ -4216,8 +3695,7 @@ void setup() {
     showSplash("WiFi OK!", WiFi.localIP().toString().c_str());
     offlineMode = false;
   } else {
-    // No router / failed router connection is NOT a configuration error.
-    // The local Weather Station dashboard remains the primary interface.
+    
     offlineMode = true;
     Serial.printf("[AP] Dashboard available at http://%s/\n", apIpStr);
     showSplash("Dashboard Ready", apIpStr);
@@ -4226,12 +3704,11 @@ void setup() {
 
   if (wifiOK&&MDNS.begin(MDNS_NAME)) { MDNS.addService("http","tcp",80); Serial.printf("[mDNS] http://%s.local\n",MDNS_NAME); }
 
-  // NTP sync — only attempt when WiFi is actually connected (saves 10s boot delay in offline mode)
   configTzTime(cfg.tzStr,"pool.ntp.org","time.nist.gov");
   if (wifiOK) {
     showSplash("Syncing NTP...","Please wait");
     struct tm ti; uint8_t ntpTries=0;
-    while (!getLocalTime(&ti)&&ntpTries<20) { delay(500); ntpTries++; }
+    while (!getLocalTime(&ti)&&ntpTries<20) { esp_task_wdt_reset(); delay(500); ntpTries++; }
     if (ntpTries<20) { char tbuf[10]; snprintf(tbuf,sizeof(tbuf),"%02d:%02d:%02d",ti.tm_hour,ti.tm_min,ti.tm_sec); showSplash("Time Synced!",tbuf); }
     else { showSplash("NTP Failed","Check WiFi"); }
     delay(800);
@@ -4242,10 +3719,10 @@ void setup() {
 
   setupWebServer();
 
-  // First persistent weather fetch after WiFi/NTP are ready. Failure is non-fatal:
-  // the dashboard explicitly shows "waiting/offline" instead of fake values.
   if (wifiOK && cfg.weatherCity[0]!='\0' && cfg.owmApiKey[0]!='\0') {
+    esp_task_wdt_reset();
     fetchPersistentWeather();
+    esp_task_wdt_reset();
   }
 
   if (!safeModeActive) {
@@ -4273,9 +3750,8 @@ void setup() {
 }
 
 void loop() {
-  esp_task_wdt_reset();  // V8 FIX: setup()/loop() task now registered with WDT — must feed it here too
+  esp_task_wdt_reset();
 
-  // Keep captive DNS responsive without blocking the rest of the firmware.
   captiveDns.processNextRequest();
   vTaskDelay(pdMS_TO_TICKS(10));
 }
